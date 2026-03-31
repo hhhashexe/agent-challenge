@@ -9,6 +9,8 @@ ShieldNet is an AI-powered cybersecurity agent that scans websites, APIs, and co
 [![Nosana](https://img.shields.io/badge/Powered%20by-Nosana-purple)](https://nosana.io)
 [![Qwen3.5-27B](https://img.shields.io/badge/Model-Qwen3.5--27B-orange)](https://huggingface.co/Qwen)
 [![Nosana Builders Challenge](https://img.shields.io/badge/Built%20for-Nosana%20Builders%20Challenge-success)](https://nosana.io)
+[![9 Actions](https://img.shields.io/badge/Actions-9-brightgreen)](https://github.com/hhhashexe/agent-challenge)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-TBD-lightgrey)](https://github.com/hhhashexe/agent-challenge)
 
 ## 🎯 What It Does
 
@@ -25,6 +27,56 @@ ShieldNet is a security-focused AI agent you chat with to scan websites, review 
 | **SCAN_GITHUB** | `scan github.com/user/repo` | Repo audit — hardcoded secrets, dangerous deps, misconfigs, missing security files |
 | **EXPORT_REPORT** | `export report` | Full markdown security report ready to share with your team |
 | **SELF_SCAN** | `scan yourself` | Meta action: agent scans its own infrastructure with personality commentary |
+
+## 🔑 Features
+
+### 9 Security Actions
+
+**1. `SCAN_URL`** — Full Website Vulnerability Scan
+- Calls ShieldNet API (scan.bughunt.tech) with 26+ attack vectors
+- Checks: XSS (reflected/stored/DOM), SQL injection, SSRF, CORS, security headers, SSL/TLS, open ports, DNS
+- Returns emoji-grouped findings with severity levels and actionable next steps
+- Progress steps indicator (✅/⚠️) as scan runs
+
+**2. `ANALYZE_CODE`** — OWASP Top 10 Code Review
+- Paste code into the chat and ask for a security review
+- LLM analyzes against all 10 OWASP categories
+- Provides specific fix examples and line-level recommendations
+
+**3. `RED_TEAM`** — Attack Narrative Generation
+- Takes previous scan results and generates realistic attack chains
+- Shows how vulnerabilities could be chained in a real intrusion
+- Output includes attacker perspective, exploitation paths, business impact
+
+**4. `SECURITY_REPORT`** — Executive Summary with A-F Grade
+- Aggregates findings from the last scan
+- Calculates overall security score (0-100) and letter grade (A-F)
+- Business impact assessment + prioritized remediation roadmap
+
+**5. `SCAN_HISTORY`** — Previous Scan Results
+- Lists all scans performed in the current session
+- Shows target URL, grade, score, and timestamp for each
+- Numbered list for quick reference
+
+**6. `COMPARE_SITES`** — Side-by-Side Security Comparison
+- Scans two URLs and produces a comparison table
+- Shows relative security scores, grades, and key differences
+- Trigger: "compare site1.com vs site2.com"
+
+**7. `SCAN_GITHUB`** — GitHub Repository Security Audit
+- Fetches raw repo files (README, requirements, package.json, etc.)
+- Checks for: hardcoded secrets, dangerous dependencies, missing security files
+- Detects common misconfigurations (CORS wildcards, debug flags, open auth)
+
+**8. `EXPORT_REPORT`** — Full Markdown Report
+- Generates a complete security report in clean markdown
+- Includes: executive summary, all findings, remediation roadmap
+- Ready to share with your team or file as a security ticket
+
+**9. `SELF_SCAN`** — Meta Self-Assessment
+- Agent scans its own infrastructure (scan.bughunt.tech)
+- Adds personality commentary to the findings
+- Demonstrates transparency and dogfooding
 
 ## 🏗️ Architecture
 

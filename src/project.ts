@@ -7,6 +7,9 @@
  */
 
 import { type Character, type Plugin, type Project } from "@elizaos/core";
+import openAiPlugin from "@elizaos/plugin-openai";
+// @ts-ignore — bootstrap has no type declarations
+import bootstrapPlugin from "@elizaos/plugin-bootstrap";
 import shieldNetPlugin from "./index.js";
 
 const character: Character = {
@@ -138,7 +141,11 @@ const project: Project = {
   agents: [
     {
       character,
-      plugins: [shieldNetPlugin as unknown as Plugin],
+      plugins: [
+        openAiPlugin as unknown as Plugin,
+        bootstrapPlugin as unknown as Plugin,
+        shieldNetPlugin as unknown as Plugin,
+      ],
     },
   ],
 };
