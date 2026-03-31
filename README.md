@@ -8,6 +8,7 @@ ShieldNet is an AI-powered cybersecurity agent that scans websites, APIs, and co
 [![ElizaOS v2](https://img.shields.io/badge/ElizaOS-v2-blue)](https://github.com/elizaos/eliza)
 [![Nosana](https://img.shields.io/badge/Powered%20by-Nosana-purple)](https://nosana.io)
 [![Qwen3.5-27B](https://img.shields.io/badge/Model-Qwen3.5--27B-orange)](https://huggingface.co/Qwen)
+[![Nosana Builders Challenge](https://img.shields.io/badge/Built%20for-Nosana%20Builders%20Challenge-success)](https://nosana.io)
 
 ## 🎯 What It Does
 
