@@ -11,14 +11,19 @@ ShieldNet is an AI-powered cybersecurity agent that scans websites, APIs, and co
 
 ## 🎯 What It Does
 
-ShieldNet is a security-focused AI agent you chat with to scan websites and review code:
+ShieldNet is a security-focused AI agent you chat with to scan websites, review code, and explore your security posture:
 
 | Action | Trigger | Description |
 |--------|---------|-------------|
-| **SCAN_URL** | "Scan https://target.com" | Full vulnerability scan — XSS, SQLi, SSRF, CORS, headers, SSL, ports, DNS |
+| **SCAN_URL** | `scan https://target.com` | Full vulnerability scan — XSS, SQLi, SSRF, CORS, headers, SSL, ports, DNS. Emoji-grouped findings with actionable next steps. |
 | **ANALYZE_CODE** | Paste code + "review" | OWASP Top 10 code review with fix suggestions |
-| **RED_TEAM** | "Generate red team report" | Attack narrative generation — realistic exploitation scenarios |
-| **SECURITY_REPORT** | "Give me a security report" | Executive summary with A-F grade, business impact, remediation priority |
+| **RED_TEAM** | `generate red team report` | Attack narrative — realistic exploitation scenarios chained from findings |
+| **SECURITY_REPORT** | `security report` | Executive summary with A-F grade, business impact, remediation priority |
+| **SCAN_HISTORY** | `show my scan history` | Numbered list of all cached scans with grades, scores, and timestamps |
+| **COMPARE_SITES** | `compare site1.com vs site2.com` | Side-by-side security comparison table of two URLs |
+| **SCAN_GITHUB** | `scan github.com/user/repo` | Repo audit — hardcoded secrets, dangerous deps, misconfigs, missing security files |
+| **EXPORT_REPORT** | `export report` | Full markdown security report ready to share with your team |
+| **SELF_SCAN** | `scan yourself` | Meta action: agent scans its own infrastructure with personality commentary |
 
 ## 🏗️ Architecture
 
@@ -190,6 +195,109 @@ ShieldNet: 📊 ShieldNet Executive Security Report
 
            Business Impact: Estimated breach cost $1.2M based on data
            exposure risk...
+```
+
+### Scan History
+
+```
+You: Show my scan history
+
+ShieldNet: 📋 ShieldNet Scan History (3 scans)
+           ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+           1. 🟢 A (96/100) — https://secure.example.com
+              🔴0 🟠0 🟡2 🔵1 | 2025-01-15 10:30:00 UTC
+
+           2. 🟡 C (62/100) — https://app.example.com
+              🔴1 🟠2 🟡3 🔵2 | 2025-01-15 11:05:00 UTC
+
+           3. 🔴 F (18/100) — https://legacy.example.com
+              🔴4 🟠3 🟡2 🔵1 | 2025-01-15 11:42:00 UTC
+```
+
+### Compare Sites
+
+```
+You: Compare https://secure.example.com vs https://legacy.example.com
+
+ShieldNet: ⚖️ ShieldNet Security Comparison
+           Scanning both targets...
+
+                              secure.example.com    legacy.example.com
+           ─────────────────────────────────────────────────────────────
+           Grade              🟢 A (96/100)         🔴 F (18/100)
+           Total Findings     3                     10
+           🔴 Critical        0                     4
+           🟠 High            0                     3
+           🟡 Medium          2                     2
+           🔵 Low             1                     1
+
+           🏆 Winner: secure.example.com is more secure by 78 points.
+```
+
+### GitHub Repo Scan
+
+```
+You: Scan github.com/myorg/myapp for security issues
+
+ShieldNet: 🔍 ShieldNet GitHub Scan
+           Repo: https://github.com/myorg/myapp
+           Fetching repository files... ⏳
+
+           🔴 CRITICAL: Hardcoded API Key in package.json
+             Found: STRIPE_SECRET_KEY=sk_live_abc123...
+             Fix: Move to environment variable and rotate immediately.
+
+           🟠 HIGH: .env not in .gitignore
+             Your .env file may be in git history.
+             Fix: Add .env to .gitignore; run git filter-repo to purge.
+
+           🟡 MEDIUM: Outdated dependency (express 4.17.1)
+             CVE-2022-24999 — ReDoS vulnerability.
+             Fix: npm update express
+
+           Overall Risk: D (45/100)
+```
+
+### Export Markdown Report
+
+```
+You: Export report
+
+ShieldNet: 📄 ShieldNet Markdown Report
+
+           # ShieldNet Security Report
+
+           ## Scan Metadata
+           | Field       | Value                  |
+           |-------------|------------------------|
+           | Target      | https://example.com    |
+           | Scan Date   | 2025-01-15T11:05:00Z   |
+           | Grade       | C (62/100)             |
+           | Critical    | 1                      |
+           ...
+
+           [Full markdown with all findings grouped by severity + remediation roadmap]
+```
+
+### Self-Scan
+
+```
+You: Scan yourself
+
+ShieldNet: 🤖 Let me turn the scanner on myself... interesting.
+
+           🛡️ ShieldNet Self-Scan Initiated
+           Target: https://scan.bughunt.tech (that's me)
+
+           Scanning headers... ⏳
+           Checking my own SSL certificate... ⏳
+           Hacker mode: ON
+
+           🛡️ ShieldNet Self-Scan Results
+           Grade: 🟢 A (94/100)
+
+           😎 Looks like I practice what I preach. Grade A — not bad for a robot.
 ```
 
 ## 🐳 Docker Deployment
