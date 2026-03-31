@@ -1,11 +1,14 @@
 {
-  "name": "nosana-eliza-agent",
+  "name": "shieldnet-elizaos-agent",
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "main": "src/project.ts",
   "scripts": {
-    "start": "elizaos start --character ./characters/agent.character.json",
-    "dev": "elizaos dev --character ./characters/agent.character.json"
+    "start": "elizaos start",
+    "dev": "elizaos dev",
+    "start:character": "elizaos start --character ./characters/agent.character.json",
+    "dev:character": "elizaos dev --character ./characters/agent.character.json"
   },
   "dependencies": {
     "@elizaos/core": "^1.0.0",

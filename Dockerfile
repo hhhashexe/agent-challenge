@@ -1,14 +1,15 @@
+# ShieldNet Security Agent — Nosana Deployment
 # syntax=docker/dockerfile:1
 
-FROM node:23-slim AS base
+FROM node:23-alpine AS base
 
-# Install system dependencies needed for native modules (e.g. better-sqlite3)
-RUN apt-get update && apt-get install -y \
-  python3 \
-  make \
-  g++ \
-  git \
-  && rm -rf /var/lib/apt/lists/*
+# Install build deps for native modules (better-sqlite3) + bun runtime
+RUN apk add --no-cache python3 make g++ git curl unzip bash
+
+# Install bun (required by elizaos CLI)
+RUN curl -fsSL https://bun.sh/install | bash
+ENV BUN_INSTALL="/root/.bun"
+ENV PATH="${BUN_INSTALL}/bin:${PATH}"
 
 # Disable telemetry
 ENV ELIZAOS_TELEMETRY_DISABLED=true
@@ -21,9 +22,10 @@ RUN npm install -g pnpm
 
 # Copy package manifest and install dependencies
 COPY package.json ./
-RUN pnpm install
+COPY pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 
-# Copy all source files
+# Copy source files
 COPY . .
 
 # Create data directory for SQLite
