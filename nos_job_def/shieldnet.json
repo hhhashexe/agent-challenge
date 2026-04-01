@@ -3,7 +3,7 @@
     {
       "id": "shieldnet-agent",
       "args": {
-        "image": "hashsecurity/shieldnet-elizaos:latest",
+        "image": "ghcr.io/hhhashexe/shieldnet-agent:latest",
         "expose": 3000,
         "env": {
           "OPENAI_API_KEY": "nosana",
