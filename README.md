@@ -72,6 +72,61 @@ ShieldNet:  Scanning https://example.com. Checking headers, SSL chain,
 | `SCAN_GITHUB` | `scan github.com/user/repo` | Repo audit — secrets, dangerous deps, misconfigs |
 | `EXPORT_REPORT` | `export report` | Full markdown report for sharing |
 | `SELF_SCAN` | `scan yourself` | Agent scans its own infrastructure |
+| `AGGRESSIVE_SCAN` 🔴 | `aggressive scan https://target.com` | Scan + LLM-generated exploit payloads per finding |
+| `GENERATE_PAYLOAD` 🔴 | `generate payload for XSS` | Standalone payload generator with WAF bypass variants |
+| `ATTACK_CHAIN` 🔴 | `attack chain for https://target.com` | Full exploit chain with concrete commands |
+
+---
+
+## 🔴 Aggressive Mode
+
+ShieldNet's **Aggressive Mode** combines standard vulnerability scanning with an uncensored LLM to generate concrete, actionable exploit payloads for each finding.
+
+### What it does
+
+**`aggressive scan <url>`** — 3-phase offensive assessment:
+1. **Reconnaissance** — standard ShieldNet scan across 26 attack vectors
+2. **Payload generation** — for each critical/high/medium finding, the LLM generates:
+   - Proof-of-concept payload
+   - WAF bypass variant
+   - Chained attack using this + other common vulns
+3. **Report** — combined output with grades, findings, and generated payloads
+
+**`generate payload for <vuln-type>`** — standalone payload generator:
+- Basic PoC payload
+- Stealth/encoded variant
+- WAF bypass (Cloudflare, ModSecurity, AWS WAF)
+- Impact maximizer
+- Automation one-liner (curl/Python/Bash)
+
+**`attack chain for <url>`** — full exploit chain with actual commands:
+- Phase 1: Reconnaissance commands (curl, nmap, whatweb)
+- Phase 2: Initial foothold with raw HTTP requests
+- Phase 3: Escalation steps with exact commands
+- Phase 4: Persistence / data exfiltration commands
+- Phase 5: Covering tracks
+- Quick-win one-liners for each high-severity finding
+
+### Requirements
+
+- **GPU required** — Aggressive Mode uses a large uncensored LLM (WhiteRabbitNeo-13B)
+- **Nosana deployment** — use `nos_job_def/shieldnet-aggressive.json` to run on Nosana GPU network
+- **Local GPU** — set `OPENAI_API_URL` to your local vLLM endpoint
+
+### Nosana Deployment (Aggressive Mode)
+
+```bash
+# Deploy with WhiteRabbitNeo-13B on Nosana GPU
+nosana job post --file nos_job_def/shieldnet-aggressive.json --market nvidia-3090
+```
+
+The job definition at `nos_job_def/shieldnet-aggressive.json` runs:
+- **Op 1**: `vllm/vllm-openai` serving `WhiteRabbitNeo/WhiteRabbitNeo-13B` on port 8000 (GPU)
+- **Op 2**: ShieldNet agent connected to the local vLLM endpoint
+
+### ⚠️ Authorized Testing Only
+
+Aggressive Mode is designed for **authorized penetration testing** of systems you own or have written permission to test. Generated payloads are for security validation, not malicious use. Always confirm scope and authorization before running aggressive scans.
 
 ---
 

@@ -1,0 +1,31 @@
+{
+  "version": "0.1",
+  "type": "container",
+  "ops": [
+    {
+      "type": "container/run",
+      "id": "attack-llm",
+      "args": {
+        "image": "vllm/vllm-openai:latest",
+        "expose": 8000,
+        "cmd": ["--model", "WhiteRabbitNeo/WhiteRabbitNeo-13B", "--port", "8000"],
+        "gpu": true
+      }
+    },
+    {
+      "type": "container/run",
+      "id": "shieldnet-agent",
+      "args": {
+        "image": "ghcr.io/hhhashexe/shieldnet-agent:latest",
+        "expose": 3000,
+        "env": {
+          "OPENAI_API_KEY": "local",
+          "OPENAI_API_URL": "http://attack-llm:8000/v1",
+          "MODEL_NAME": "WhiteRabbitNeo-13B",
+          "SERVER_PORT": "3000"
+        },
+        "needs": ["attack-llm"]
+      }
+    }
+  ]
+}

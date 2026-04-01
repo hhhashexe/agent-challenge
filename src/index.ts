@@ -5,15 +5,18 @@
  * generates red team narratives, and produces executive security reports.
  *
  * Actions:
- * - SCAN_URL:        Scans websites for vulnerabilities via ShieldNet API
- * - ANALYZE_CODE:    Reviews code for OWASP Top 10 security issues
- * - RED_TEAM:        Generates attack narratives from scan results
- * - SECURITY_REPORT: Executive summary with grade A-F
- * - SCAN_HISTORY:    Shows history of all cached scans
- * - COMPARE_SITES:   Side-by-side security comparison of two URLs
- * - SCAN_GITHUB:     Scans a GitHub repo for secrets & misconfigurations
- * - EXPORT_REPORT:   Exports last scan as a full markdown report
- * - SELF_SCAN:       Meta action — scans the ShieldNet site itself
+ * - SCAN_URL:          Scans websites for vulnerabilities via ShieldNet API
+ * - ANALYZE_CODE:      Reviews code for OWASP Top 10 security issues
+ * - RED_TEAM:          Generates attack narratives from scan results
+ * - SECURITY_REPORT:   Executive summary with grade A-F
+ * - SCAN_HISTORY:      Shows history of all cached scans
+ * - COMPARE_SITES:     Side-by-side security comparison of two URLs
+ * - SCAN_GITHUB:       Scans a GitHub repo for secrets & misconfigurations
+ * - EXPORT_REPORT:     Exports last scan as a full markdown report
+ * - SELF_SCAN:         Meta action — scans the ShieldNet site itself
+ * - AGGRESSIVE_SCAN:   Scan + LLM-generated exploit payloads per finding
+ * - GENERATE_PAYLOAD:  Standalone payload generator for any vuln type
+ * - ATTACK_CHAIN:      Full attack chain with concrete commands per finding
  */
 
 import {
@@ -1436,15 +1439,20 @@ const helpAction: Action = {
       `26 attack vectors. CVE track record: GHSA-j73w (9.1), GHSA-cqrc (7.1), GHSA-c9jw (7.5).`,
       ``,
       `**Commands:**`,
-      `  scan <url>                  — full vulnerability scan (headers, SSL, XSS, SQLi, CORS, ports, DNS)`,
-      `  compare <url1> vs <url2>    — side-by-side security comparison`,
-      `  scan github.com/user/repo   — GitHub repo audit (secrets, deps, misconfigs)`,
-      `  scan yourself               — meta scan of this agent's own infrastructure`,
-      `  [paste code]                — OWASP Top 10 code review`,
-      `  red team report             — attack chain narrative from last scan`,
-      `  security report             — executive summary with A-F grade`,
-      `  show scan history           — all scans this session`,
-      `  export report               — full markdown report for sharing`,
+      `  scan <url>                      — full vulnerability scan (headers, SSL, XSS, SQLi, CORS, ports, DNS)`,
+      `  aggressive scan <url>           — 🔴 scan + LLM-generated exploit payloads per finding`,
+      `  generate payload for <vuln>     — 🔴 standalone payload generator (XSS, SQLi, SSRF, WAF bypass...)`,
+      `  attack chain for <url>          — 🔴 full exploit chain with concrete commands`,
+      `  compare <url1> vs <url2>        — side-by-side security comparison`,
+      `  scan github.com/user/repo       — GitHub repo audit (secrets, deps, misconfigs)`,
+      `  scan yourself                   — meta scan of this agent's own infrastructure`,
+      `  [paste code]                    — OWASP Top 10 code review`,
+      `  red team report                 — attack chain narrative from last scan`,
+      `  security report                 — executive summary with A-F grade`,
+      `  show scan history               — all scans this session`,
+      `  export report                   — full markdown report for sharing`,
+      ``,
+      `🔴 Aggressive mode requires GPU (Nosana or local). Uses uncensored LLM for payload generation.`,
       ``,
       `Start with: \`scan https://yoursite.com\``,
     ].join("\n");
@@ -1654,6 +1662,454 @@ const healthCheckAction: Action = {
   ] as ActionExample[][],
 };
 
+// ─── Action: AGGRESSIVE_SCAN ─────────────────────────────────────────────
+
+const aggressiveScanAction: Action = {
+  name: "AGGRESSIVE_SCAN",
+  description:
+    "Aggressive mode: combines a standard ShieldNet vulnerability scan with LLM-generated exploit payloads for each finding. Use when requested for aggressive scan, deep scan, full pentest, attack mode, or aggressive mode.",
+  similes: [
+    "DEEP_SCAN",
+    "FULL_PENTEST",
+    "ATTACK_MODE",
+    "PENTEST_AGGRESSIVE",
+    "OFFENSIVE_SCAN",
+  ],
+
+  validate: async (runtime: IAgentRuntime, message: Memory): Promise<boolean> => {
+    const text = (message.content?.text || "").toLowerCase();
+    return /aggressive\s*(scan|mode)|deep\s*scan|full\s*pentest|attack\s*mode|pentest\s*aggressive/i.test(text);
+  },
+
+  handler: async (
+    runtime: IAgentRuntime,
+    message: Memory,
+    state?: State,
+    options?: unknown,
+    callback?: HandlerCallback
+  ) => {
+    const text = message.content?.text || "";
+    const target = extractUrl(text);
+
+    if (!target) {
+      if (callback) {
+        await callback({
+          text: "Aggressive mode requires a target URL. Usage: `aggressive scan https://target.com`",
+        });
+      }
+      return { success: false, error: "No URL found" };
+    }
+
+    // Phase 1: Reconnaissance
+    if (callback) {
+      await callback({
+        text: `🔴 **Aggressive scan initiated — ${target}**\nPhase 1: reconnaissance & standard vulnerability scan...`,
+      });
+    }
+
+    let scanResult: ScanResult;
+    try {
+      scanResult = await scanUrl(target);
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      if (callback) {
+        await callback({ text: `Scan failed: ${errMsg}` });
+      }
+      return { success: false, error: errMsg };
+    }
+
+    const findings = scanResult.findings || [];
+    const actionableFindings = findings.filter((f) =>
+      ["critical", "high", "medium"].includes(f.severity)
+    );
+
+    // Phase 2: Payload generation
+    if (callback) {
+      await callback({
+        text: `Phase 2: generating attack payloads for ${actionableFindings.length} findings (critical/high/medium)...`,
+      });
+    }
+
+    const enhancedFindings: Array<Finding & { payloads: string }> = [];
+
+    for (const finding of actionableFindings) {
+      const prompt = `You are a penetration tester conducting authorized security testing. Given this vulnerability finding, generate 3 specific exploit payloads that could be used to verify or exploit it. Be concrete, technical, and actionable.
+
+Finding: ${finding.title}
+Type: ${finding.type}
+Severity: ${finding.severity}
+Description: ${finding.description}
+Target: ${target}
+
+Generate exactly 3 payloads:
+1. A proof-of-concept payload
+2. A bypass variant (evading common WAF rules)
+3. A chained attack using this with other common vulnerabilities
+
+Format each as: [Payload Name]: <actual payload code/command>`;
+
+      try {
+        const response = await runtime.useModel(ModelType.TEXT_LARGE, {
+          prompt,
+          temperature: 0.6,
+          maxTokens: 1024,
+        });
+        enhancedFindings.push({ ...finding, payloads: String(response) });
+      } catch {
+        enhancedFindings.push({
+          ...finding,
+          payloads: "(payload generation failed for this finding)",
+        });
+      }
+    }
+
+    // Phase 3: Build report
+    const { grade, score } =
+      scanResult.grade
+        ? { grade: scanResult.grade, score: scanResult.score || 0 }
+        : calculateGrade(findings);
+
+    let report = `**🔴 Aggressive Scan Report — ${target}**\n`;
+    report += `Grade: ${grade} (${score}/100)\n`;
+    report += `Standard findings: ${findings.length} | Enhanced with payloads: ${enhancedFindings.length}\n\n`;
+
+    for (const f of enhancedFindings) {
+      report += `---\n`;
+      report += `**[${f.severity.toUpperCase()}] ${f.title}**\n`;
+      report += `${f.description}\n\n`;
+      report += `**Generated Payloads:**\n`;
+      report += `${f.payloads}\n\n`;
+    }
+
+    report += `\n---\n⚠️ Payloads generated for authorized testing only. Do not use against systems without explicit written permission.`;
+
+    if (callback) {
+      await callback({ text: report });
+    }
+
+    return {
+      success: true,
+      data: { target, grade, score, totalFindings: findings.length, enhanced: enhancedFindings.length },
+    };
+  },
+
+  examples: [
+    [
+      { name: "{{user1}}", content: { text: "aggressive scan https://example.com" } },
+      {
+        name: "ShieldNet",
+        content: {
+          text: "🔴 Aggressive scan initiated — https://example.com\nPhase 1: reconnaissance & standard vulnerability scan...",
+        },
+      },
+    ],
+    [
+      { name: "{{user1}}", content: { text: "full pentest https://target.com" } },
+      {
+        name: "ShieldNet",
+        content: {
+          text: "🔴 Aggressive scan initiated — https://target.com\nPhase 1: reconnaissance...",
+        },
+      },
+    ],
+    [
+      { name: "{{user1}}", content: { text: "deep scan https://app.example.com" } },
+      {
+        name: "ShieldNet",
+        content: {
+          text: "🔴 Aggressive scan initiated — https://app.example.com\nPhase 1: reconnaissance...",
+        },
+      },
+    ],
+  ] as ActionExample[][],
+};
+
+// ─── Action: GENERATE_PAYLOAD ─────────────────────────────────────────────
+
+const generatePayloadAction: Action = {
+  name: "GENERATE_PAYLOAD",
+  description:
+    "Standalone exploit payload generator. Given a vulnerability type and optional target context, generates specific proof-of-concept payloads including WAF bypass variants. Use when asked to generate payloads for XSS, SQLi, SSRF, CORS, or similar vulnerability types.",
+  similes: [
+    "CREATE_PAYLOAD",
+    "PAYLOAD_GEN",
+    "MAKE_EXPLOIT",
+    "BUILD_PAYLOAD",
+    "WAF_BYPASS",
+  ],
+
+  validate: async (runtime: IAgentRuntime, message: Memory): Promise<boolean> => {
+    const text = (message.content?.text || "").toLowerCase();
+    return /generate\s*payload|create\s*(exploit|payload)|payload\s*for|waf\s*bypass\s*for|exploit\s*for\s*(xss|sqli|ssrf|cors|rce|lfi|rfi|idor|ssti)/i.test(
+      text
+    );
+  },
+
+  handler: async (
+    runtime: IAgentRuntime,
+    message: Memory,
+    state?: State,
+    options?: unknown,
+    callback?: HandlerCallback
+  ) => {
+    const text = message.content?.text || "";
+    const target = extractUrl(text) || "the target";
+
+    // Extract vulnerability type from message
+    const vulnMatch = text.match(
+      /(?:for|exploit for|payload for|bypass for)\s+(xss|sqli|sql injection|ssrf|cors|rce|lfi|rfi|idor|ssti|xxe|open redirect|csrf|path traversal|command injection|[a-z\s]+vulnerability)/i
+    );
+    const vulnType = vulnMatch ? vulnMatch[1].trim() : "web application vulnerability";
+
+    if (callback) {
+      await callback({
+        text: `Generating payloads for **${vulnType}**${target !== "the target" ? ` on ${target}` : ""}...`,
+      });
+    }
+
+    const prompt = `You are a penetration tester generating exploit payloads for authorized security testing.
+
+Vulnerability type: ${vulnType}
+Target context: ${target !== "the target" ? target : "generic web application"}
+Request: ${text}
+
+Generate a comprehensive payload set:
+
+**1. Basic PoC Payload**
+The simplest working proof-of-concept that confirms the vulnerability exists.
+
+**2. Stealth/Encoded Variant**
+An encoded or obfuscated version to evade basic detection.
+
+**3. WAF Bypass Variant**
+Specifically crafted to bypass common WAF rules (Cloudflare, ModSecurity, AWS WAF).
+
+**4. Impact Maximizer**
+The most damaging version — data exfiltration, session theft, or command execution depending on vuln type.
+
+**5. Automation One-liner**
+A curl/Python/Bash one-liner to automate testing this payload across endpoints.
+
+For each payload, include: the raw payload, where to inject it, and expected response indicating success.`;
+
+    try {
+      const response = await runtime.useModel(ModelType.TEXT_LARGE, {
+        prompt,
+        temperature: 0.6,
+        maxTokens: 2048,
+      });
+
+      let report = `**Payload Set — ${vulnType}**\n`;
+      if (target !== "the target") report += `Target: ${target}\n`;
+      report += `\n${String(response)}\n\n`;
+      report += `---\n⚠️ For authorized testing only.`;
+
+      if (callback) {
+        await callback({ text: report });
+      }
+
+      return { success: true, data: { vulnType, target } };
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      if (callback) {
+        await callback({ text: `Payload generation failed: ${errMsg}` });
+      }
+      return { success: false, error: errMsg };
+    }
+  },
+
+  examples: [
+    [
+      { name: "{{user1}}", content: { text: "generate payload for XSS on https://example.com" } },
+      {
+        name: "ShieldNet",
+        content: {
+          text: "Generating payloads for **XSS** on https://example.com...",
+        },
+      },
+    ],
+    [
+      { name: "{{user1}}", content: { text: "create exploit for SQLi" } },
+      {
+        name: "ShieldNet",
+        content: {
+          text: "Generating payloads for **SQLi**...",
+        },
+      },
+    ],
+    [
+      { name: "{{user1}}", content: { text: "WAF bypass for XSS" } },
+      {
+        name: "ShieldNet",
+        content: {
+          text: "Generating payloads for **XSS**...",
+        },
+      },
+    ],
+  ] as ActionExample[][],
+};
+
+// ─── Action: ATTACK_CHAIN ─────────────────────────────────────────────────
+
+const attackChainAction: Action = {
+  name: "ATTACK_CHAIN",
+  description:
+    "Generates a full attack chain with concrete commands and exploit steps based on scan results. Unlike RED_TEAM (narrative), this produces actual runnable commands and specific payloads for each step. Use when asked for attack chain, full exploit path, or chain vulnerabilities.",
+  similes: [
+    "EXPLOIT_PATH",
+    "FULL_EXPLOIT",
+    "CHAIN_VULNERABILITIES",
+    "COMMAND_CHAIN",
+    "EXPLOIT_CHAIN_COMMANDS",
+  ],
+
+  validate: async (runtime: IAgentRuntime, message: Memory): Promise<boolean> => {
+    const text = (message.content?.text || "").toLowerCase();
+    return /attack\s*chain|full\s*exploit\s*path|chain\s*vulnerabilit|exploit\s*chain\s*for|full\s*attack\s*path/i.test(
+      text
+    );
+  },
+
+  handler: async (
+    runtime: IAgentRuntime,
+    message: Memory,
+    state?: State,
+    options?: unknown,
+    callback?: HandlerCallback
+  ) => {
+    const text = message.content?.text || "";
+
+    // Try to get URL from message, or fall back to last scan
+    const urlInMessage = extractUrl(text);
+    let target: string;
+    let scanData: ScanResult | undefined;
+
+    if (urlInMessage && scanCache.has(urlInMessage)) {
+      target = urlInMessage;
+      scanData = scanCache.get(urlInMessage);
+    } else {
+      const entries = Array.from(scanCache.entries());
+      const lastEntry = entries.length > 0 ? entries[entries.length - 1] : null;
+      if (!lastEntry) {
+        if (callback) {
+          await callback({
+            text: "No scan data available. Run `scan https://target.com` first, then request an attack chain.",
+          });
+        }
+        return { success: false, error: "No scan data available" };
+      }
+      [target, scanData] = lastEntry;
+    }
+
+    const findings = (scanData?.findings || []).filter((f) =>
+      ["critical", "high", "medium"].includes(f.severity)
+    );
+
+    if (findings.length === 0) {
+      if (callback) {
+        await callback({
+          text: `No critical/high/medium findings for ${target}. No attack chains to generate.`,
+        });
+      }
+      return { success: true, data: { target, message: "No exploitable findings" } };
+    }
+
+    if (callback) {
+      await callback({
+        text: `Building attack chain for **${target}** (${findings.length} exploitable findings)...`,
+      });
+    }
+
+    const findingsSummary = findings
+      .map((f) => `[${f.severity.toUpperCase()}] ${f.title}: ${f.description}`)
+      .join("\n");
+
+    const prompt = `You are an offensive security expert. Generate a precise, command-level attack chain for the following target and its confirmed vulnerabilities.
+
+Target: ${target}
+Confirmed vulnerabilities:
+${findingsSummary}
+
+Generate a full attack chain with ACTUAL COMMANDS (not just descriptions). Structure:
+
+## Phase 1: Reconnaissance
+Specific curl/nmap/whatweb commands to fingerprint the target.
+
+## Phase 2: Initial Foothold
+The first concrete exploit — exact payload, exact HTTP request, exact command. Show the raw request/response.
+
+## Phase 3: Escalation
+How to chain the initial access into deeper compromise. Exact commands for each step.
+
+## Phase 4: Persistence / Data Exfiltration
+Specific commands to maintain access or extract sensitive data given these vulnerabilities.
+
+## Phase 5: Covering Tracks
+How to clean up artifacts on this specific target.
+
+## Quick-Win One-Liners
+5 single commands that immediately confirm or exploit the highest-severity findings.
+
+Be extremely specific. Show actual curl commands, payloads, HTTP headers. Reference the exact vulnerabilities found.`;
+
+    try {
+      const response = await runtime.useModel(ModelType.TEXT_LARGE, {
+        prompt,
+        temperature: 0.5,
+        maxTokens: 4096,
+      });
+
+      let report = `**⛓️ Attack Chain — ${target}**\n`;
+      report += `${findings.length} exploitable findings | Grade: ${scanData?.grade ?? "?"}\n\n`;
+      report += `---\n\n`;
+      report += String(response);
+      report += `\n\n---\n⚠️ For authorized penetration testing only. Confirm written permission before executing.`;
+
+      if (callback) {
+        await callback({ text: report });
+      }
+
+      return { success: true, data: { target, findingsCount: findings.length } };
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      if (callback) {
+        await callback({ text: `Attack chain generation failed: ${errMsg}` });
+      }
+      return { success: false, error: errMsg };
+    }
+  },
+
+  examples: [
+    [
+      { name: "{{user1}}", content: { text: "attack chain for https://example.com" } },
+      {
+        name: "ShieldNet",
+        content: {
+          text: "Building attack chain for **https://example.com** (3 exploitable findings)...",
+        },
+      },
+    ],
+    [
+      { name: "{{user1}}", content: { text: "full exploit path" } },
+      {
+        name: "ShieldNet",
+        content: {
+          text: "Building attack chain for **https://example.com** (3 exploitable findings)...",
+        },
+      },
+    ],
+    [
+      { name: "{{user1}}", content: { text: "chain vulnerabilities for https://target.com" } },
+      {
+        name: "ShieldNet",
+        content: {
+          text: "Building attack chain for **https://target.com** (2 exploitable findings)...",
+        },
+      },
+    ],
+  ] as ActionExample[][],
+};
+
 // ─── Plugin Definition ────────────────────────────────────────────────────
 
 const shieldNetPlugin: Plugin = {
@@ -1672,6 +2128,9 @@ const shieldNetPlugin: Plugin = {
     scanGithubAction,
     exportReportAction,
     selfScanAction,
+    aggressiveScanAction,
+    generatePayloadAction,
+    attackChainAction,
   ],
   providers: [],
   evaluators: [],
