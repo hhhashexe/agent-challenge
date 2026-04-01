@@ -145,7 +145,7 @@ function extractCode(text: string): string | null {
 }
 
 function formatFindings(findings: Finding[]): string {
-  if (!findings || findings.length === 0) return "No vulnerabilities found. ✅";
+  if (!findings || findings.length === 0) return "No vulnerabilities detected.";
 
   const grouped: Record<string, Finding[]> = {};
   for (const f of findings) {
@@ -155,23 +155,23 @@ function formatFindings(findings: Finding[]): string {
   }
 
   const severityOrder = ["critical", "high", "medium", "low", "info"];
-  const severityEmoji: Record<string, string> = {
-    critical: "🔴",
-    high: "🟠",
-    medium: "🟡",
-    low: "🔵",
-    info: "⚪",
+  const severityLabel: Record<string, string> = {
+    critical: "CRITICAL",
+    high: "HIGH",
+    medium: "MEDIUM",
+    low: "LOW",
+    info: "INFO",
   };
 
   let output = "";
   for (const sev of severityOrder) {
     const items = grouped[sev];
     if (!items || items.length === 0) continue;
-    output += `\n${severityEmoji[sev]} **${sev.toUpperCase()}** (${items.length})\n`;
+    output += `\n[${severityLabel[sev]}] — ${items.length} finding${items.length > 1 ? "s" : ""}\n`;
     for (const f of items) {
       output += `  • ${f.title || f.type}`;
-      if (f.description) output += ` — ${f.description}`;
-      if (f.remediation) output += `\n    🔧 Fix: ${f.remediation}`;
+      if (f.description) output += `\n    ${f.description}`;
+      if (f.remediation) output += `\n    Fix: ${f.remediation}`;
       output += "\n";
     }
   }
@@ -278,16 +278,16 @@ const scanUrlAction: Action = {
     if (callback) {
       await callback({
         text: [
-          `🛡️ **ShieldNet Scan Initiated**`,
-          `**Target:** ${target}`,
+          `**ShieldNet — Scanning ${target}**`,
           ``,
-          `Scanning headers... ⏳`,
-          `Checking SSL... ⏳`,
-          `Testing XSS vectors... ⏳`,
-          `Probing ports... ⏳`,
-          `Analysing DNS... ⏳`,
+          `Resolving DNS...`,
+          `Probing HTTP headers...`,
+          `Testing SSL certificate chain...`,
+          `Checking XSS/SQLi/SSRF vectors...`,
+          `Scanning exposed ports...`,
+          `Analyzing CORS policy...`,
           ``,
-          `_This may take 30–60 seconds._`,
+          `Results in 30–60 seconds.`,
         ].join("\n"),
       });
     }
@@ -303,45 +303,46 @@ const scanUrlAction: Action = {
       const findings = result.findings || [];
       const counts = countBySeverity(findings);
 
-      // Progress emoji based on outcome
-      const sslOk = !findings.some(
-        (f) => f.type?.toLowerCase().includes("ssl") && ["critical", "high"].includes(f.severity)
-      );
-      const headersOk = !findings.some(
-        (f) =>
-          f.type?.toLowerCase().includes("header") && ["critical", "high"].includes(f.severity)
-      );
-      const xssOk = !findings.some(
-        (f) => f.type?.toLowerCase().includes("xss") && ["critical", "high"].includes(f.severity)
-      );
+      // Build grade explanation based on actual findings
+      function buildGradeExplanation(g: string, s: number, c: typeof counts, fs: Finding[]): string {
+        const issues: string[] = [];
+        if (fs.some((f) => f.type?.toLowerCase().includes("csp") || f.title?.toLowerCase().includes("content-security-policy"))) {
+          issues.push("missing CSP header (XSS risk)");
+        }
+        if (fs.some((f) => f.type?.toLowerCase().includes("hsts") || f.title?.toLowerCase().includes("hsts"))) {
+          issues.push("missing HSTS (downgrade attack risk)");
+        }
+        if (fs.some((f) => f.type?.toLowerCase().includes("ssl") && ["critical", "high"].includes(f.severity))) {
+          issues.push("weak SSL configuration");
+        }
+        if (fs.some((f) => f.type?.toLowerCase().includes("cors") || f.title?.toLowerCase().includes("cors"))) {
+          issues.push("CORS misconfiguration");
+        }
+        if (c.critical > 0) issues.push(`${c.critical} critical finding${c.critical > 1 ? "s" : ""}`);
+        if (c.high > 0) issues.push(`${c.high} high-severity finding${c.high > 1 ? "s" : ""}`);
+        const reason = issues.length > 0 ? issues.slice(0, 3).join(", ") : "multiple medium/low findings";
+        return `Grade ${g} (${s}/100): ${reason}.`;
+      }
 
-      let report = `🛡️ **ShieldNet Scan Complete**\n`;
-      report += `━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-      report += `**Target:** ${target}\n`;
-      report += `**Grade:** ${gradeEmoji(grade)} ${grade} (${score}/100)\n`;
-      report += `**Findings:** ${findings.length} total\n`;
-      if (result.duration) report += `**Duration:** ${(result.duration / 1000).toFixed(1)}s\n`;
-      report += `━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-      report += `\nChecks performed:\n`;
-      report += `  Security headers.... ${headersOk ? "✅" : "⚠️"}\n`;
-      report += `  SSL/TLS certificate. ${sslOk ? "✅" : "⚠️"}\n`;
-      report += `  XSS vectors......... ${xssOk ? "✅" : "⚠️"}\n`;
-      report += `\n**Findings by severity:**\n`;
-      report += `🔴 Critical: ${counts.critical}  🟠 High: ${counts.high}  🟡 Medium: ${counts.medium}  🔵 Low: ${counts.low}  ⚪ Info: ${counts.info}\n`;
+      let report = `**Scan complete — ${target}**\n`;
+      report += `\n`;
+      report += `${buildGradeExplanation(grade, score, counts, findings)}\n`;
+      if (result.duration) report += `Scan duration: ${(result.duration / 1000).toFixed(1)}s\n`;
+      report += `\n`;
+      report += `Summary: ${counts.critical} critical, ${counts.high} high, ${counts.medium} medium, ${counts.low} low, ${counts.info} info\n`;
       report += formatFindings(findings);
 
       // Actionable next steps
       if (counts.critical > 0 || counts.high > 0) {
-        report += `\n⚡ **Next steps:**\n`;
-        report += `  1. Address all 🔴 Critical and 🟠 High findings immediately\n`;
-        report += `  2. Run "security report" for an executive-ready assessment\n`;
-        report += `  3. Run "red team report" to see realistic attack chains\n`;
+        report += `\n---\n`;
+        report += `Address [CRITICAL] and [HIGH] findings first — those are your highest exploitability risk.\n`;
+        report += `Run "security report" for executive summary. Run "red team report" to see realistic attack chains.`;
       } else if (counts.medium > 0) {
-        report += `\n💡 **Next steps:**\n`;
-        report += `  1. Resolve 🟡 Medium findings before production\n`;
-        report += `  2. Run "export report" to share results with your team\n`;
+        report += `\n---\n`;
+        report += `No critical issues. Resolve [MEDIUM] findings before production. Run "export report" to share with your team.`;
       } else {
-        report += `\n🎉 **Great posture!** Run "export report" to document this clean scan.\n`;
+        report += `\n---\n`;
+        report += `Clean scan. Run "export report" to document this.`;
       }
 
       if (callback) {
@@ -356,7 +357,7 @@ const scanUrlAction: Action = {
       const errMsg = error instanceof Error ? error.message : String(error);
       if (callback) {
         await callback({
-          text: `⚠️ Scan failed for ${target}: ${errMsg}\n\nThis could be due to the target being unreachable, rate limiting, or network issues. Try again in a moment.`,
+          text: `Scan failed for ${target}: ${errMsg}\n\nTarget may be unreachable, rate limited, or blocking the scanner. Try again in a moment.`,
         });
       }
       return { success: false, error: errMsg };
@@ -472,7 +473,7 @@ Respond in a structured format with clear sections for each finding.`;
         maxTokens: 4096,
       });
 
-      let response = `🔍 **ShieldNet Code Analysis**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+      let response = `**Code Analysis — OWASP Top 10**\n\n`;
       response += analysis;
 
       if (callback) {
@@ -591,11 +592,9 @@ Be specific, technical, and realistic. Reference actual vulnerability details fr
         maxTokens: 4096,
       });
 
-      let response = `🔴 **ShieldNet Red Team Report**\n`;
-      response += `━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-      response += `**Target:** ${target}\n`;
-      response += `**Findings Analyzed:** ${findings.length}\n`;
-      response += `━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+      let response = `**Red Team Report — ${target}**\n`;
+      response += `${findings.length} findings analyzed\n\n`;
+      response += `---\n\n`;
       response += narrative;
 
       if (callback) {
@@ -707,19 +706,13 @@ Keep it concise. Use plain language. This is for executives, not engineers.`;
         maxTokens: 3000,
       });
 
-      let report = `📊 **ShieldNet Executive Security Report**\n`;
-      report += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-      report += `**Target:** ${target}\n`;
-      report += `**Grade:** ${gradeEmoji(grade)} ${grade} (${score}/100)\n`;
-      report += `**Date:** ${new Date().toISOString().split("T")[0]}\n`;
-      report += `\n`;
-      report += `**Findings Breakdown:**\n`;
-      report += `🔴 Critical: ${counts.critical} | 🟠 High: ${counts.high} | 🟡 Medium: ${counts.medium} | 🔵 Low: ${counts.low} | ⚪ Info: ${counts.info}\n`;
-      report += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+      let report = `**Security Report — ${target}**\n`;
+      report += `Grade: ${grade} (${score}/100) | Date: ${new Date().toISOString().split("T")[0]}\n`;
+      report += `Findings: ${counts.critical} critical, ${counts.high} high, ${counts.medium} medium, ${counts.low} low, ${counts.info} info\n`;
+      report += `\n---\n\n`;
       report += summary;
-      report += `\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-      report += `🛡️ Report generated by ShieldNet • Hash Security\n`;
-      report += `💡 Run "scan <url>" for a new scan or "red team report" for attack narratives.`;
+      report += `\n\n---\n`;
+      report += `ShieldNet / Hash Security — run "red team report" to see attack chains.`;
 
       if (callback) {
         await callback({ text: report });
@@ -729,14 +722,11 @@ Keep it concise. Use plain language. This is for executives, not engineers.`;
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error);
 
-      let report = `📊 **ShieldNet Security Report**\n`;
-      report += `━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-      report += `**Target:** ${target}\n`;
-      report += `**Grade:** ${grade} (${score}/100)\n`;
-      report += `**Date:** ${new Date().toISOString().split("T")[0]}\n\n`;
-      report += `**Findings:** ${counts.critical} Critical, ${counts.high} High, ${counts.medium} Medium, ${counts.low} Low\n\n`;
+      let report = `**Security Report — ${target}**\n`;
+      report += `Grade: ${grade} (${score}/100) | Date: ${new Date().toISOString().split("T")[0]}\n`;
+      report += `Findings: ${counts.critical} critical, ${counts.high} high, ${counts.medium} medium, ${counts.low} low\n\n`;
       report += formatFindings(findings);
-      report += `\n⚠️ Note: Executive summary generation failed (${errMsg}). Showing raw findings instead.`;
+      report += `\nNote: LLM summary failed (${errMsg}). Raw findings shown above.`;
 
       if (callback) {
         await callback({ text: report });
@@ -797,8 +787,7 @@ const scanHistoryAction: Action = {
       return { success: true, data: { count: 0 } };
     }
 
-    let output = `📋 **ShieldNet Scan History** (${scanCache.size} scan${scanCache.size !== 1 ? "s" : ""})\n`;
-    output += `━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    let output = `**Scan History** — ${scanCache.size} scan${scanCache.size !== 1 ? "s" : ""} this session\n\n`;
 
     let idx = 1;
     for (const target of scanOrder) {
@@ -811,12 +800,12 @@ const scanHistoryAction: Action = {
         ? scan._timestamp.toISOString().replace("T", " ").slice(0, 19) + " UTC"
         : "unknown time";
 
-      output += `**${idx}.** ${gradeEmoji(grade)} **${grade}** (${score}/100) — \`${target}\`\n`;
-      output += `    🔴${counts.critical} 🟠${counts.high} 🟡${counts.medium} 🔵${counts.low} | ${ts}\n\n`;
+      output += `${idx}. [${grade}] ${score}/100 — ${target}\n`;
+      output += `   ${counts.critical}c/${counts.high}h/${counts.medium}m/${counts.low}l | ${ts}\n\n`;
       idx++;
     }
 
-    output += `💡 Re-scan any target or run "compare site1 vs site2" for a head-to-head.`;
+    output += `Run "compare <url1> vs <url2>" for a head-to-head comparison.`;
 
     if (callback) {
       await callback({ text: output });
@@ -891,7 +880,7 @@ const compareSitesAction: Action = {
 
     if (callback) {
       await callback({
-        text: `⚖️ **ShieldNet Comparison**\nScanning both targets...\n  → ${url1}\n  → ${url2}\n_This may take up to 2 minutes._`,
+        text: `Scanning both targets...\n  ${url1}\n  ${url2}\n\nUp to 2 minutes.`,
       });
     }
 
@@ -913,26 +902,25 @@ const compareSitesAction: Action = {
       const pad = (s: string, n: number) => s.padEnd(n).slice(0, n);
       const col = 24;
 
-      let out = `⚖️ **ShieldNet Security Comparison**\n`;
-      out += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+      let out = `**Security Comparison**\n`;
       out += `\`\`\`\n`;
       out += `${pad("", 18)} ${pad(url1.replace(/^https?:\/\//, ""), col)}  ${url2.replace(/^https?:\/\//, "")}\n`;
       out += `${"─".repeat(18 + col * 2 + 4)}\n`;
-      out += `${pad("Grade", 18)} ${pad(`${gradeEmoji(g1.grade)} ${g1.grade} (${g1.score}/100)`, col)}  ${gradeEmoji(g2.grade)} ${g2.grade} (${g2.score}/100)\n`;
+      out += `${pad("Grade", 18)} ${pad(`${g1.grade} (${g1.score}/100)`, col)}  ${g2.grade} (${g2.score}/100)\n`;
       out += `${pad("Total Findings", 18)} ${pad(String((r1.findings || []).length), col)}  ${(r2.findings || []).length}\n`;
-      out += `${pad("🔴 Critical", 18)} ${pad(String(c1.critical), col)}  ${c2.critical}\n`;
-      out += `${pad("🟠 High", 18)} ${pad(String(c1.high), col)}  ${c2.high}\n`;
-      out += `${pad("🟡 Medium", 18)} ${pad(String(c1.medium), col)}  ${c2.medium}\n`;
-      out += `${pad("🔵 Low", 18)} ${pad(String(c1.low), col)}  ${c2.low}\n`;
+      out += `${pad("Critical", 18)} ${pad(String(c1.critical), col)}  ${c2.critical}\n`;
+      out += `${pad("High", 18)} ${pad(String(c1.high), col)}  ${c2.high}\n`;
+      out += `${pad("Medium", 18)} ${pad(String(c1.medium), col)}  ${c2.medium}\n`;
+      out += `${pad("Low", 18)} ${pad(String(c1.low), col)}  ${c2.low}\n`;
       out += `\`\`\`\n`;
 
       if (winner) {
-        out += `\n🏆 **Winner:** ${winner} is more secure by ${Math.abs(g1.score - g2.score)} points.\n`;
+        out += `\n${winner} scores higher by ${Math.abs(g1.score - g2.score)} points.`;
       } else {
-        out += `\n🤝 **Tie!** Both sites have the same security score.\n`;
+        out += `\nTie — identical security scores.`;
       }
 
-      out += `\n💡 Run "security report" for a detailed breakdown of the last scan.`;
+      out += `\n\nRun "security report" for a detailed breakdown.`;
 
       if (callback) {
         await callback({ text: out });
@@ -942,7 +930,7 @@ const compareSitesAction: Action = {
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error);
       if (callback) {
-        await callback({ text: `⚠️ Comparison failed: ${errMsg}` });
+        await callback({ text: `Comparison failed: ${errMsg}` });
       }
       return { success: false, error: errMsg };
     }
@@ -1010,11 +998,10 @@ const scanGithubAction: Action = {
     if (callback) {
       await callback({
         text: [
-          `🔍 **ShieldNet GitHub Scan**`,
-          `**Repo:** ${repoUrl}`,
+          `**GitHub Scan — ${repoUrl}**`,
           ``,
-          `Fetching repository files... ⏳`,
-          `  package.json, .env, .gitignore, Dockerfile, docker-compose.yml, src/...`,
+          `Fetching: package.json, requirements.txt, .env*, Dockerfile, docker-compose.yml, src/...`,
+          `Checking for hardcoded secrets, dangerous deps, missing security files...`,
         ].join("\n"),
       });
     }
@@ -1106,13 +1093,10 @@ End with an overall risk assessment (A-F grade) and top 3 immediate actions.`;
         maxTokens: 4096,
       });
 
-      let response = `🔍 **ShieldNet GitHub Security Scan**\n`;
-      response += `━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-      response += `**Repo:** ${repoUrl}\n`;
-      response += `**Files scanned:** ${found.map((f) => f.file).join(", ")}\n`;
-      response += `━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+      let response = `**GitHub Security Scan — ${repoUrl}**\n`;
+      response += `Files scanned: ${found.map((f) => f.file).join(", ")}\n\n`;
+      response += `---\n\n`;
       response += analysis;
-      response += `\n\n💡 Run "scan ${repoUrl.replace("github.com", "").split("/").pop()}.github.io" to scan the live deployment too.`;
 
       if (callback) {
         await callback({ text: response });
@@ -1122,7 +1106,7 @@ End with an overall risk assessment (A-F grade) and top 3 immediate actions.`;
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error);
       if (callback) {
-        await callback({ text: `⚠️ GitHub scan analysis failed: ${errMsg}` });
+        await callback({ text: `GitHub scan analysis failed: ${errMsg}` });
       }
       return { success: false, error: errMsg };
     }
@@ -1315,7 +1299,7 @@ const exportReportAction: Action = {
 
     if (callback) {
       await callback({
-        text: `📄 **ShieldNet Markdown Report**\n\n_Preview (first 30 lines):_\n\`\`\`markdown\n${previewLines}\n\`\`\`\n\n✅ Full report generated (${md.split("\n").length} lines). Copy the markdown above or ask me to show the full report.`,
+        text: `**Markdown Report — ${target}**\n\nPreview (first 30 lines):\n\`\`\`markdown\n${previewLines}\n\`\`\`\n\nFull report: ${md.split("\n").length} lines. Sending below.`,
       });
 
       // Send the full report as a second message
@@ -1372,15 +1356,13 @@ const selfScanAction: Action = {
     if (callback) {
       await callback({
         text: [
-          `🤖 *Let me turn the scanner on myself... interesting.*`,
+          `Turning the scanner on my own infrastructure. Fair is fair.`,
           ``,
-          `🛡️ **ShieldNet Self-Scan Initiated**`,
-          `**Target:** ${SHIELDNET_SELF} (that's me)`,
-          ``,
-          `Scanning headers... ⏳`,
-          `Checking my own SSL certificate... ⏳`,
-          `Testing my endpoints for XSS... ⏳`,
-          `_Hacker mode: ON_`,
+          `Target: ${SHIELDNET_SELF}`,
+          `Probing headers...`,
+          `Checking SSL certificate chain...`,
+          `Testing XSS/SQLi vectors on own endpoints...`,
+          `Analyzing CORS policy...`,
         ].join("\n"),
       });
     }
@@ -1396,28 +1378,24 @@ const selfScanAction: Action = {
       const findings = result.findings || [];
       const counts = countBySeverity(findings);
 
-      let report = `🤖 **ShieldNet Self-Scan Results**\n`;
-      report += `━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-      report += `**Target:** ${SHIELDNET_SELF}\n`;
-      report += `**Grade:** ${gradeEmoji(grade)} ${grade} (${score}/100)\n`;
-      report += `**Findings:** ${findings.length} total\n`;
-      report += `━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+      let report = `**Self-Scan — ${SHIELDNET_SELF}**\n`;
+      report += `Grade: ${grade} (${score}/100) | Findings: ${findings.length}\n`;
       report += formatFindings(findings);
       report += `\n`;
 
-      // Self-aware commentary
+      // Self-aware commentary — dry, not performative
       if (grade === "A") {
-        report += `\n😎 *Looks like I practice what I preach. Grade A — not bad for a robot.*`;
+        report += `\nPractice what I preach. Grade A.`;
       } else if (grade === "B") {
-        report += `\n🤔 *Grade B... I've got some minor housekeeping to do. The cobbler's children have no shoes?*`;
+        report += `\nGrade B. Minor housekeeping needed. The cobbler's children, etc.`;
       } else if (grade === "C") {
-        report += `\n😅 *Grade C... okay, this is slightly embarrassing. A security agent with medium findings. I'm taking notes.*`;
+        report += `\nGrade C. Slightly embarrassing. Taking notes.`;
       } else {
-        report += `\n😬 *Grade ${grade}... I clearly need to spend more time securing myself and less time judging others. Noted.*`;
+        report += `\nGrade ${grade}. Apparently I should spend less time judging others' infrastructure.`;
       }
 
-      report += `\n\n💡 **Fun fact:** I just scanned ${counts.critical + counts.high + counts.medium + counts.low + counts.info} findings on myself. `;
-      report += `Run "security report" to see the full executive breakdown, or "red team report" to see how I could be attacked.`;
+      const total = counts.critical + counts.high + counts.medium + counts.low + counts.info;
+      report += `\n\n${total} findings. Run "security report" for full breakdown or "red team report" for attack chains.`;
 
       if (callback) {
         await callback({ text: report });
@@ -1428,7 +1406,7 @@ const selfScanAction: Action = {
       const errMsg = error instanceof Error ? error.message : String(error);
       if (callback) {
         await callback({
-          text: `⚠️ Even I have bad days — self-scan failed: ${errMsg}\n\n*Ironic.* Try again in a moment.`,
+          text: `Self-scan failed: ${errMsg}\n\nIronic. Try again in a moment.`,
         });
       }
       return { success: false, error: errMsg };
@@ -1457,6 +1435,75 @@ const selfScanAction: Action = {
   ] as ActionExample[][],
 };
 
+// ─── Action: HELP ────────────────────────────────────────────────────────
+
+const helpAction: Action = {
+  name: "HELP",
+  description:
+    "Show ShieldNet's capabilities and available commands. Use when a user asks for help, what you can do, or sends a greeting.",
+  similes: ["COMMANDS", "WHAT_CAN_YOU_DO", "INTRO", "GET_STARTED", "USAGE"],
+
+  validate: async (runtime: IAgentRuntime, message: Memory): Promise<boolean> => {
+    const text = (message.content?.text || "").toLowerCase().trim();
+    return /^(help|commands|what can you do|hi|hello|hey|start|get started|how do i|what do you do)/.test(
+      text
+    ) || text === "?";
+  },
+
+  handler: async (
+    runtime: IAgentRuntime,
+    message: Memory,
+    state?: State,
+    options?: unknown,
+    callback?: HandlerCallback
+  ) => {
+    const welcomeText = [
+      `**ShieldNet** — security scanner by Hash Security.`,
+      `26 attack vectors. CVE track record: GHSA-j73w (9.1), GHSA-cqrc (7.1), GHSA-c9jw (7.5).`,
+      ``,
+      `**Commands:**`,
+      `  scan <url>                  — full vulnerability scan (headers, SSL, XSS, SQLi, CORS, ports, DNS)`,
+      `  compare <url1> vs <url2>    — side-by-side security comparison`,
+      `  scan github.com/user/repo   — GitHub repo audit (secrets, deps, misconfigs)`,
+      `  scan yourself               — meta scan of this agent's own infrastructure`,
+      `  [paste code]                — OWASP Top 10 code review`,
+      `  red team report             — attack chain narrative from last scan`,
+      `  security report             — executive summary with A-F grade`,
+      `  show scan history           — all scans this session`,
+      `  export report               — full markdown report for sharing`,
+      ``,
+      `Start with: \`scan https://yoursite.com\``,
+    ].join("\n");
+
+    if (callback) {
+      await callback({ text: welcomeText });
+    }
+
+    return { success: true };
+  },
+
+  examples: [
+    [
+      { name: "{{user1}}", content: { text: "help" } },
+      {
+        name: "ShieldNet",
+        content: {
+          text: "ShieldNet — security scanner by Hash Security.\n26 attack vectors. CVE track record: GHSA-j73w (9.1), GHSA-cqrc (7.1), GHSA-c9jw (7.5).\n\nStart with: scan https://yoursite.com",
+        },
+      },
+    ],
+    [
+      { name: "{{user1}}", content: { text: "hello" } },
+      {
+        name: "ShieldNet",
+        content: {
+          text: "ShieldNet — security scanner. Type 'scan <url>' to start or 'help' for all commands.",
+        },
+      },
+    ],
+  ] as ActionExample[][],
+};
+
 // ─── Plugin Definition ────────────────────────────────────────────────────
 
 const shieldNetPlugin: Plugin = {
@@ -1464,6 +1511,7 @@ const shieldNetPlugin: Plugin = {
   description:
     "ShieldNet Security Plugin — AI-powered vulnerability scanning, code analysis, red teaming, and executive security reports. Built by Hash Security.",
   actions: [
+    helpAction,
     scanUrlAction,
     analyzeCodeAction,
     redTeamAction,
