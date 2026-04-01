@@ -222,6 +222,109 @@ nosana job post --file nos_job_def/shieldnet.json --market gpu
 
 ---
 
+## Nosana Integration
+
+ShieldNet is built on Nosana from the ground up — not just deployed there.
+
+### Why Nosana for Security Tooling
+
+Security scans expose sensitive data: internal endpoints, SSL certs, open ports, vulnerability details. **This data must not go through centralized API providers.** Nosana's decentralized GPU network ensures:
+
+- 🔒 **Privacy-first**: scan data processed on your dedicated node, not OpenAI's servers
+- 🌐 **Decentralized**: no single point of failure; nodes rescheduled automatically
+- ⚡ **GPU-accelerated**: Qwen3.5-27B runs on A100/H100 for fast, high-quality analysis
+- 🔗 **Verifiable**: every job recorded on Solana — cryptographic proof of execution
+- 💰 **Cost-effective**: market pricing, not per-token API markup
+
+### What Runs on Nosana
+
+| Component | Nosana Role | Model / Container |
+|-----------|-------------|------------------|
+| LLM Inference | GPU node inference | Qwen3.5-27B-AWQ-4bit |
+| Embeddings | GPU node inference | Qwen3-Embedding-0.6B (1024-dim) |
+| Agent Runtime | Container deployment | shieldnet-agent:latest |
+| Health Monitoring | Cron job (every 5 min) | curlimages/curl probes |
+
+### Actions Using Nosana LLM
+
+Every action that requires reasoning — `ANALYZE_CODE`, `RED_TEAM`, `SECURITY_REPORT`, `SCAN_GITHUB` — routes through the Nosana Qwen3.5-27B endpoint. Even the memory/RAG system uses Nosana embeddings for storing and retrieving conversation context.
+
+### Job Definitions
+
+Three Nosana job manifests in `nos_job_def/`:
+
+```
+nos_job_def/
+├── shieldnet.json            # Single-container agent deployment
+├── shieldnet-pipeline.json   # Multi-op: scanner API + agent (orchestration)
+└── shieldnet-monitoring.json # Cron health + latency probes (every 5 min)
+```
+
+**Pipeline job** (`shieldnet-pipeline.json`) runs two containers with dependency ordering:
+1. `shieldnet-scanner-api` — isolated scanner service on port 8080
+2. `shieldnet-eliza-agent` — LLM agent, depends on scanner, connects via internal network
+
+This demonstrates Nosana's multi-operation orchestration: security-boundary isolation between the network-exposed scanner and the LLM reasoning layer.
+
+**Monitoring job** (`shieldnet-monitoring.json`) is a cron-scheduled job that probes:
+- Agent HTTP endpoint
+- Nosana LLM `/v1/models` endpoint  
+- Nosana Embedding `/v1/models` endpoint
+- Scanner API `/health`
+
+Plus a latency breakdown op (DNS → TCP → TLS → TTFB) for performance tracking.
+
+### Health Check Action
+
+The `HEALTH_CHECK` action actively probes Nosana endpoints at query time. Ask the agent:
+
+```
+You: status
+You: are you running?
+You: health
+
+ShieldNet: ShieldNet Agent — System Status
+           Status: 🟢 RUNNING  |  Uptime: 47m 12s
+
+           Nosana GPU Infrastructure
+             ✅ LLM:        Qwen3.5-27B-AWQ-4bit (234ms)
+             ✅ Embeddings: Qwen3-Embedding-0.6B (189ms)
+
+           Scanner API
+             ✅ scan.bughunt.tech (145ms)
+```
+
+### Automated Deployment
+
+`deploy.sh` handles the full deploy lifecycle:
+
+```bash
+./deploy.sh gpu 30
+# → Docker build + tag
+# → Push to ghcr.io
+# → nosana job post --file nos_job_def/shieldnet.json --market gpu
+# → Wait for node URL
+# → Health check validation
+```
+
+### Project Structure (Updated)
+
+```
+├── src/
+│   └── index.ts                      # 10 actions incl. HEALTH_CHECK
+├── nos_job_def/
+│   ├── shieldnet.json                # Single-container deploy
+│   ├── shieldnet-pipeline.json       # Multi-op pipeline (scanner + agent)
+│   └── shieldnet-monitoring.json     # Cron health monitoring
+├── deploy.sh                         # Automated Nosana deployment script
+├── NOSANA_INTEGRATION.md             # Deep dive into Nosana integration
+└── ...
+```
+
+→ See [NOSANA_INTEGRATION.md](./NOSANA_INTEGRATION.md) for the full architecture deep dive.
+
+---
+
 ## About
 
 Built by [Hash Security](https://scan.bughunt.tech). CVEs discovered: GHSA-j73w (9.1 Critical), GHSA-cqrc (7.1 High), GHSA-c9jw (7.5 High).

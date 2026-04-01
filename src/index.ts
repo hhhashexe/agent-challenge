@@ -1504,6 +1504,182 @@ const helpAction: Action = {
   ] as ActionExample[][],
 };
 
+// ─── Action: HEALTH_CHECK ─────────────────────────────────────────────────
+
+/**
+ * HEALTH_CHECK action — reports live system status including Nosana GPU
+ * endpoints, scanner API, memory usage, and uptime.
+ *
+ * Responds to: "health", "status", "are you running?", "ping", "uptime", etc.
+ * Also exposed via the ElizaOS agent HTTP interface at GET /
+ */
+
+const AGENT_START_TIME = Date.now();
+
+const healthCheckAction: Action = {
+  name: "HEALTH_CHECK",
+  description:
+    "Return agent health status: uptime, Nosana LLM endpoint status, embedding endpoint, scanner API, memory usage. Use when user asks about system status, health, or if the agent is running.",
+  similes: [
+    "STATUS",
+    "PING",
+    "UPTIME",
+    "ARE_YOU_RUNNING",
+    "SYSTEM_STATUS",
+    "INFRASTRUCTURE_STATUS",
+    "NODE_STATUS",
+  ],
+
+  validate: async (_runtime: IAgentRuntime, message: Memory): Promise<boolean> => {
+    const text = (message.content?.text || "").toLowerCase().trim();
+    return /\b(health|status|ping|uptime|are you (running|up|alive|ok)|system info|infrastructure|nosana status|node status)\b/.test(
+      text
+    );
+  },
+
+  handler: async (
+    runtime: IAgentRuntime,
+    _message: Memory,
+    _state?: State,
+    _options?: unknown,
+    callback?: HandlerCallback
+  ) => {
+    const uptimeMs = Date.now() - AGENT_START_TIME;
+    const uptimeSec = Math.floor(uptimeMs / 1000);
+    const uptimeMin = Math.floor(uptimeSec / 60);
+    const uptimeHr = Math.floor(uptimeMin / 60);
+    const uptimeStr =
+      uptimeHr > 0
+        ? `${uptimeHr}h ${uptimeMin % 60}m ${uptimeSec % 60}s`
+        : uptimeMin > 0
+        ? `${uptimeMin}m ${uptimeSec % 60}s`
+        : `${uptimeSec}s`;
+
+    // Check Nosana LLM endpoint liveness
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const nodeProcess = (globalThis as any).process as { env: Record<string, string | undefined>; version?: string; platform?: string; memoryUsage?: () => { heapUsed: number; heapTotal: number; rss: number } } | undefined;
+    const nosanaLlmUrl =
+      (nodeProcess?.env.OPENAI_API_URL) || "https://6vq2bcqphcansrs9b88ztxfs88oqy7etah2ugudytv2x.node.k8s.prd.nos.ci/v1";
+    const nosanaEmbedUrl =
+      (nodeProcess?.env.OPENAI_EMBEDDING_URL) || "https://4yiccatpyxx773jtewo5ccwhw1s2hezq5pehndb6fcfq.node.k8s.prd.nos.ci/v1";
+
+    const checkEndpoint = async (url: string): Promise<{ ok: boolean; latencyMs: number }> => {
+      const t0 = Date.now();
+      try {
+        const res = await fetch(`${url}/models`, {
+          signal: AbortSignal.timeout(5000),
+        });
+        return { ok: res.ok, latencyMs: Date.now() - t0 };
+      } catch {
+        return { ok: false, latencyMs: Date.now() - t0 };
+      }
+    };
+
+    const checkScanner = async (): Promise<{ ok: boolean; latencyMs: number }> => {
+      const t0 = Date.now();
+      try {
+        const res = await fetch(`${SHIELDNET_API}/health`, {
+          signal: AbortSignal.timeout(5000),
+        });
+        return { ok: res.ok || res.status === 404, latencyMs: Date.now() - t0 };
+      } catch {
+        return { ok: false, latencyMs: Date.now() - t0 };
+      }
+    };
+
+    // Run endpoint checks in parallel
+    const [llmStatus, embedStatus, scannerStatus] = await Promise.all([
+      checkEndpoint(nosanaLlmUrl),
+      checkEndpoint(nosanaEmbedUrl),
+      checkScanner(),
+    ]);
+
+    const memUsage = nodeProcess?.memoryUsage?.() ?? { heapUsed: 0, heapTotal: 0, rss: 0 };
+    const memMB = Math.round(memUsage.heapUsed / 1024 / 1024);
+    const memTotalMB = Math.round(memUsage.heapTotal / 1024 / 1024);
+    const rssKB = Math.round(memUsage.rss / 1024);
+
+    const scanCount = scanCache.size;
+    const modelName = nodeProcess?.env.MODEL_NAME || "Qwen3.5-27B-AWQ-4bit";
+    const embeddingModel = nodeProcess?.env.OPENAI_EMBEDDING_MODEL || "Qwen3-Embedding-0.6B";
+
+    const statusIcon = (ok: boolean) => (ok ? "✅" : "⚠️");
+    const latencyStr = (ms: number) => (ms < 5000 ? `${ms}ms` : "timeout");
+
+    const report = [
+      `**ShieldNet Agent — System Status**`,
+      ``,
+      `**Core**`,
+      `  Status:     🟢 RUNNING`,
+      `  Uptime:     ${uptimeStr}`,
+      `  Scans cached: ${scanCount}`,
+      ``,
+      `**Nosana GPU Infrastructure**`,
+      `  ${statusIcon(llmStatus.ok)} LLM:        ${modelName} (${latencyStr(llmStatus.latencyMs)})`,
+      `  ${statusIcon(embedStatus.ok)} Embeddings: ${embeddingModel} (${latencyStr(embedStatus.latencyMs)})`,
+      `  Node:       Nosana decentralized GPU network`,
+      ``,
+      `**Scanner API**`,
+      `  ${statusIcon(scannerStatus.ok)} scan.bughunt.tech (${latencyStr(scannerStatus.latencyMs)})`,
+      `  Vectors:    26+ (XSS, SQLi, SSRF, CORS, headers, SSL, ports, DNS)`,
+      ``,
+      `**Runtime**`,
+      `  Node.js:    ${nodeProcess?.version ?? "unknown"}`,
+      `  Heap:       ${memMB}MB / ${memTotalMB}MB`,
+      `  RSS:        ${rssKB}KB`,
+      `  Platform:   ${nodeProcess?.platform ?? "unknown"}`,
+    ].join("\n");
+
+    if (callback) {
+      await callback({ text: report });
+    }
+
+    return {
+      success: true,
+      data: {
+        uptime: uptimeStr,
+        nosana: {
+          llm: { model: modelName, ok: llmStatus.ok, latencyMs: llmStatus.latencyMs },
+          embeddings: { model: embeddingModel, ok: embedStatus.ok, latencyMs: embedStatus.latencyMs },
+        },
+        scanner: { url: SHIELDNET_API, ok: scannerStatus.ok },
+        scansCount: scanCount,
+        memory: { heapMB: memMB, totalMB: memTotalMB },
+      },
+    };
+  },
+
+  examples: [
+    [
+      { name: "{{user1}}", content: { text: "health" } },
+      {
+        name: "ShieldNet",
+        content: {
+          text: "**ShieldNet Agent — System Status**\n\nStatus: 🟢 RUNNING\nUptime: 5m 12s\n\n✅ LLM: Qwen3.5-27B-AWQ-4bit (234ms)\n✅ Embeddings: Qwen3-Embedding-0.6B (189ms)\n✅ Scanner: scan.bughunt.tech (145ms)",
+        },
+      },
+    ],
+    [
+      { name: "{{user1}}", content: { text: "are you running?" } },
+      {
+        name: "ShieldNet",
+        content: {
+          text: "🟢 Yes — ShieldNet is live on Nosana GPU infrastructure.\nLLM: Qwen3.5-27B ✅ | Embeddings ✅ | Scanner ✅",
+        },
+      },
+    ],
+    [
+      { name: "{{user1}}", content: { text: "status" } },
+      {
+        name: "ShieldNet",
+        content: {
+          text: "**ShieldNet Agent — System Status**\n\nNosana LLM: ✅ | Embeddings: ✅ | Scanner API: ✅",
+        },
+      },
+    ],
+  ] as ActionExample[][],
+};
+
 // ─── Plugin Definition ────────────────────────────────────────────────────
 
 const shieldNetPlugin: Plugin = {
@@ -1512,6 +1688,7 @@ const shieldNetPlugin: Plugin = {
     "ShieldNet Security Plugin — AI-powered vulnerability scanning, code analysis, red teaming, and executive security reports. Built by Hash Security.",
   actions: [
     helpAction,
+    healthCheckAction,
     scanUrlAction,
     analyzeCodeAction,
     redTeamAction,

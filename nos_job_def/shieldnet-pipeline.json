@@ -1,0 +1,66 @@
+{
+  "version": "0.1",
+  "type": "container",
+  "meta": {
+    "trigger": "cli",
+    "description": "ShieldNet multi-step pipeline: scanner API + ElizaOS agent orchestration on Nosana GPU network"
+  },
+  "ops": [
+    {
+      "type": "container/run",
+      "id": "shieldnet-scanner-api",
+      "args": {
+        "image": "ghcr.io/hhhashexe/shieldnet-agent:latest",
+        "expose": 8080,
+        "env": {
+          "NODE_ENV": "production",
+          "SERVICE_MODE": "scanner",
+          "SCANNER_PORT": "8080",
+          "SCANNER_WORKERS": "4",
+          "SCAN_TIMEOUT_MS": "120000",
+          "MAX_CONCURRENT_SCANS": "10"
+        },
+        "cmd": ["node", "scanner-service.js"],
+        "resources": {
+          "gpu": 1,
+          "memory": "4Gi",
+          "cpu": "2"
+        }
+      }
+    },
+    {
+      "type": "container/run",
+      "id": "shieldnet-eliza-agent",
+      "args": {
+        "image": "ghcr.io/hhhashexe/shieldnet-agent:latest",
+        "expose": 3000,
+        "env": {
+          "OPENAI_API_KEY": "nosana",
+          "OPENAI_API_URL": "https://6vq2bcqphcansrs9b88ztxfs88oqy7etah2ugudytv2x.node.k8s.prd.nos.ci/v1",
+          "MODEL_NAME": "Qwen3.5-27B-AWQ-4bit",
+          "OPENAI_EMBEDDING_URL": "https://4yiccatpyxx773jtewo5ccwhw1s2hezq5pehndb6fcfq.node.k8s.prd.nos.ci/v1",
+          "OPENAI_EMBEDDING_API_KEY": "nosana",
+          "OPENAI_EMBEDDING_MODEL": "Qwen3-Embedding-0.6B",
+          "OPENAI_EMBEDDING_DIMENSIONS": "1024",
+          "SERVER_PORT": "3000",
+          "NODE_ENV": "production",
+          "SERVICE_MODE": "agent",
+          "SCANNER_API_URL": "http://shieldnet-scanner-api:8080",
+          "SCANNER_INTERNAL": "true"
+        },
+        "resources": {
+          "gpu": 1,
+          "memory": "8Gi",
+          "cpu": "4"
+        }
+      },
+      "needs": ["shieldnet-scanner-api"]
+    }
+  ],
+  "global": {
+    "network": "shieldnet-net",
+    "timeout": 3600,
+    "restart": "on-failure",
+    "maxRestarts": 3
+  }
+}

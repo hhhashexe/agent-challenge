@@ -1,0 +1,64 @@
+{
+  "version": "0.1",
+  "type": "container",
+  "meta": {
+    "trigger": "cron",
+    "schedule": "*/5 * * * *",
+    "description": "ShieldNet periodic health monitoring — verifies agent liveness, LLM endpoint, scanner API, and embedding service"
+  },
+  "ops": [
+    {
+      "type": "container/run",
+      "id": "health-check",
+      "args": {
+        "image": "curlimages/curl:latest",
+        "env": {
+          "AGENT_URL": "https://shieldnet.node.k8s.prd.nos.ci",
+          "LLM_ENDPOINT": "https://6vq2bcqphcansrs9b88ztxfs88oqy7etah2ugudytv2x.node.k8s.prd.nos.ci/v1/models",
+          "EMBEDDING_ENDPOINT": "https://4yiccatpyxx773jtewo5ccwhw1s2hezq5pehndb6fcfq.node.k8s.prd.nos.ci/v1/models",
+          "SCANNER_API": "https://scan.bughunt.tech/health",
+          "ALERT_WEBHOOK": "",
+          "TIMEOUT_SECS": "10",
+          "MAX_FAILURES": "3"
+        },
+        "cmd": [
+          "sh", "-c",
+          "set -e; echo '=== ShieldNet Health Monitor ==='; echo ''; echo '[1/4] Agent endpoint...'; curl -sf --max-time $TIMEOUT_SECS \"$AGENT_URL\" > /dev/null && echo '  ✓ Agent: UP' || (echo '  ✗ Agent: DOWN' && exit 1); echo '[2/4] LLM endpoint (Nosana Qwen3.5-27B)...'; curl -sf --max-time $TIMEOUT_SECS \"$LLM_ENDPOINT\" > /dev/null && echo '  ✓ LLM: UP' || echo '  ✗ LLM: DEGRADED (will use fallback)'; echo '[3/4] Embedding endpoint (Nosana Qwen3-Embedding)...'; curl -sf --max-time $TIMEOUT_SECS \"$EMBEDDING_ENDPOINT\" > /dev/null && echo '  ✓ Embeddings: UP' || echo '  ✗ Embeddings: DEGRADED'; echo '[4/4] Scanner API (scan.bughunt.tech)...'; curl -sf --max-time $TIMEOUT_SECS \"$SCANNER_API\" > /dev/null && echo '  ✓ Scanner: UP' || echo '  ✗ Scanner: DEGRADED'; echo ''; echo '=== All health checks complete ==='; date -u '+%Y-%m-%dT%H:%M:%SZ'"
+        ],
+        "resources": {
+          "cpu": "0.1",
+          "memory": "64Mi"
+        }
+      }
+    },
+    {
+      "type": "container/run",
+      "id": "latency-probe",
+      "args": {
+        "image": "curlimages/curl:latest",
+        "env": {
+          "AGENT_URL": "https://shieldnet.node.k8s.prd.nos.ci",
+          "LLM_ENDPOINT": "https://6vq2bcqphcansrs9b88ztxfs88oqy7etah2ugudytv2x.node.k8s.prd.nos.ci/v1/models"
+        },
+        "cmd": [
+          "sh", "-c",
+          "echo '=== Latency Probe ==='; curl -o /dev/null -s -w 'Agent latency:     %{time_total}s\\nDNS lookup:        %{time_namelookup}s\\nConnect:           %{time_connect}s\\nTLS handshake:     %{time_appconnect}s\\nFirst byte:        %{time_starttransfer}s\\n' \"$AGENT_URL\"; echo ''; curl -o /dev/null -s -w 'LLM latency:       %{time_total}s\\n' \"$LLM_ENDPOINT\""
+        ],
+        "resources": {
+          "cpu": "0.1",
+          "memory": "64Mi"
+        }
+      },
+      "needs": ["health-check"]
+    }
+  ],
+  "global": {
+    "timeout": 120,
+    "restart": "never",
+    "notifications": {
+      "onFailure": true,
+      "onSuccess": false,
+      "channels": ["ops-alerts"]
+    }
+  }
+}
