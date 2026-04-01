@@ -274,22 +274,9 @@ const scanUrlAction: Action = {
       return { success: false, error: "No URL found" };
     }
 
-    // Progress update #1
+    // Single progress update — no fake multi-step dump
     if (callback) {
-      await callback({
-        text: [
-          `**ShieldNet — Scanning ${target}**`,
-          ``,
-          `Resolving DNS...`,
-          `Probing HTTP headers...`,
-          `Testing SSL certificate chain...`,
-          `Checking XSS/SQLi/SSRF vectors...`,
-          `Scanning exposed ports...`,
-          `Analyzing CORS policy...`,
-          ``,
-          `Results in 30–60 seconds.`,
-        ].join("\n"),
-      });
+      await callback({ text: `Scanning ${target}... results in 30-60 seconds.` });
     }
 
     try {
@@ -355,9 +342,12 @@ const scanUrlAction: Action = {
       };
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error);
+      const isTimeout = error instanceof Error && (error.name === "AbortError" || errMsg.toLowerCase().includes("abort"));
       if (callback) {
         await callback({
-          text: `Scan failed for ${target}: ${errMsg}\n\nTarget may be unreachable, rate limited, or blocking the scanner. Try again in a moment.`,
+          text: isTimeout
+            ? `Scan timed out after 120s. ${target} may be slow or actively blocking the scanner.`
+            : `Target unreachable: ${target}. Check the URL and try again.`,
         });
       }
       return { success: false, error: errMsg };
@@ -373,7 +363,7 @@ const scanUrlAction: Action = {
       {
         name: "ShieldNet",
         content: {
-          text: "🛡️ ShieldNet Scan Initiated\nTarget: https://example.com\nScanning headers... ⏳",
+          text: "Scanning https://example.com... results in 30-60 seconds.",
         },
       },
     ],
@@ -385,7 +375,7 @@ const scanUrlAction: Action = {
       {
         name: "ShieldNet",
         content: {
-          text: "🛡️ ShieldNet Scan Initiated\nTarget: https://myapp.dev\nScanning for vulnerabilities...",
+          text: "Scanning https://myapp.dev... results in 30-60 seconds.",
         },
       },
     ],
@@ -484,7 +474,7 @@ Respond in a structured format with clear sections for each finding.`;
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error);
       if (callback) {
-        await callback({ text: `⚠️ Code analysis failed: ${errMsg}` });
+        await callback({ text: `Code analysis failed: ${errMsg}` });
       }
       return { success: false, error: errMsg };
     }
@@ -501,7 +491,7 @@ Respond in a structured format with clear sections for each finding.`;
       {
         name: "ShieldNet",
         content: {
-          text: "🔍 ShieldNet Code Analysis\n\n🔴 CRITICAL: SQL Injection (A03)\nThe user input is directly concatenated into the SQL query...",
+          text: "[CRITICAL] SQL Injection — A03:2021\n\nLine 3: req.query.id goes directly into the query string. Classic string concatenation SQLi.\n\nFix: db.query('SELECT * FROM users WHERE id = ?', [req.query.id]);\n\nParameterized queries. Always.",
         },
       },
     ],
@@ -555,7 +545,7 @@ const redTeamAction: Action = {
     if (findings.length === 0) {
       if (callback) {
         await callback({
-          text: `✅ No vulnerabilities found in the last scan of ${target}. No attack narrative to generate — the target appears well-secured.`,
+          text: `No vulnerabilities found in the last scan of ${target}. No attack chains to generate — the target is clean.`,
         });
       }
       return { success: true, data: { target, message: "No vulnerabilities to exploit" } };
@@ -605,7 +595,7 @@ Be specific, technical, and realistic. Reference actual vulnerability details fr
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error);
       if (callback) {
-        await callback({ text: `⚠️ Red team report generation failed: ${errMsg}` });
+        await callback({ text: `Red team report generation failed: ${errMsg}` });
       }
       return { success: false, error: errMsg };
     }
@@ -620,7 +610,7 @@ Be specific, technical, and realistic. Reference actual vulnerability details fr
       {
         name: "ShieldNet",
         content: {
-          text: "🔴 ShieldNet Red Team Report\nTarget: https://example.com\n\nAttack Chain 1: Session Hijacking via XSS + Missing HSTS...",
+          text: "Red Team Report — https://example.com\n3 findings analyzed\n\n---\n\nAttack Chain 1: Session Hijacking via XSS + Missing HSTS\nExploitability: Medium | Impact: Account takeover\n...",
         },
       },
     ],
@@ -742,7 +732,7 @@ Keep it concise. Use plain language. This is for executives, not engineers.`;
       {
         name: "ShieldNet",
         content: {
-          text: "📊 ShieldNet Executive Security Report\nTarget: https://example.com\nGrade: 🟡 C (65/100)\n\nOverall Assessment: The target has several medium-severity issues...",
+          text: "Security Report — https://example.com\nGrade: C (65/100) | Date: 2024-01-15\nFindings: 0 critical, 2 high, 5 medium, 3 low, 1 info\n\n---\n\nOverall Assessment: Several medium-severity issues present. No critical findings, but high-severity items need attention before production.",
         },
       },
     ],
@@ -781,7 +771,7 @@ const scanHistoryAction: Action = {
     if (scanCache.size === 0) {
       if (callback) {
         await callback({
-          text: "📭 No scans in history yet.\n\nStart with: `scan https://yoursite.com`",
+          text: "No scans in history yet. Start with: `scan https://yoursite.com`",
         });
       }
       return { success: true, data: { count: 0 } };
@@ -820,7 +810,7 @@ const scanHistoryAction: Action = {
       {
         name: "ShieldNet",
         content: {
-          text: "📋 ShieldNet Scan History (2 scans)\n\n1. 🟢 A (95/100) — https://secure.example.com\n2. 🔴 F (25/100) — https://vuln.example.com",
+          text: "Scan History — 2 scans this session\n\n1. [A] 95/100 — https://secure.example.com\n   0c/0h/1m/2l | 2024-01-15 10:30:00 UTC\n\n2. [F] 25/100 — https://vuln.example.com\n   3c/4h/2m/1l | 2024-01-15 10:45:00 UTC",
         },
       },
     ],
@@ -828,7 +818,7 @@ const scanHistoryAction: Action = {
       { name: "{{user1}}", content: { text: "What were my previous scans?" } },
       {
         name: "ShieldNet",
-        content: { text: "📋 ShieldNet Scan History (1 scan)\n\n1. 🟡 C (62/100) — https://example.com" },
+        content: { text: "Scan History — 1 scan this session\n\n1. [C] 62/100 — https://example.com\n   0c/1h/3m/2l | 2024-01-15 11:00:00 UTC" },
       },
     ],
   ] as ActionExample[][],
@@ -945,7 +935,7 @@ const compareSitesAction: Action = {
       {
         name: "ShieldNet",
         content: {
-          text: "⚖️ ShieldNet Security Comparison\nScanning both targets...",
+          text: "Scanning both targets... up to 2 minutes.",
         },
       },
     ],
@@ -997,16 +987,11 @@ const scanGithubAction: Action = {
 
     if (callback) {
       await callback({
-        text: [
-          `**GitHub Scan — ${repoUrl}**`,
-          ``,
-          `Fetching: package.json, requirements.txt, .env*, Dockerfile, docker-compose.yml, src/...`,
-          `Checking for hardcoded secrets, dangerous deps, missing security files...`,
-        ].join("\n"),
+        text: `GitHub Scan — ${repoUrl}\nFetching files... this takes 30-60 seconds.`,
       });
     }
 
-    // Files to attempt fetching
+    // Files to attempt fetching — focus on highest-signal security files
     const filesToCheck = [
       "package.json",
       ".env",
@@ -1019,10 +1004,6 @@ const scanGithubAction: Action = {
       "src/index.ts",
       "src/app.js",
       "src/app.ts",
-      "config.js",
-      "config.ts",
-      ".github/workflows/main.yml",
-      ".github/workflows/ci.yml",
     ];
 
     const branches = ["main", "master"];
@@ -1052,7 +1033,7 @@ const scanGithubAction: Action = {
     if (found.length === 0) {
       if (callback) {
         await callback({
-          text: `⚠️ Could not fetch any files from ${repoUrl}. The repo may be private or empty.`,
+          text: `Could not fetch any files from ${repoUrl}. The repo may be private, empty, or the name is incorrect.`,
         });
       }
       return { success: false, error: "No files accessible" };
@@ -1121,7 +1102,7 @@ End with an overall risk assessment (A-F grade) and top 3 immediate actions.`;
       {
         name: "ShieldNet",
         content: {
-          text: "🔍 ShieldNet GitHub Scan\nRepo: https://github.com/myorg/myapp\nFetching repository files... ⏳",
+          text: "GitHub Scan — https://github.com/myorg/myapp\nFetching files... this takes 30-60 seconds.",
         },
       },
     ],
@@ -1198,12 +1179,12 @@ const exportReportAction: Action = {
       grouped[sev].push(f);
     }
 
-    const severityEmoji: Record<string, string> = {
-      critical: "🔴",
-      high: "🟠",
-      medium: "🟡",
-      low: "🔵",
-      info: "⚪",
+    const severityLabel: Record<string, string> = {
+      critical: "CRITICAL",
+      high: "HIGH",
+      medium: "MEDIUM",
+      low: "LOW",
+      info: "INFO",
     };
 
     let md = `# ShieldNet Security Report\n\n`;
@@ -1232,23 +1213,23 @@ const exportReportAction: Action = {
     md += `SSL/TLS configuration, open ports, and DNS security.\n\n`;
 
     if (counts.critical > 0) {
-      md += `⚠️ **${counts.critical} critical issue${counts.critical > 1 ? "s" : ""} require immediate remediation** before this system handles production traffic or sensitive data.\n\n`;
+      md += `**Action required: ${counts.critical} critical issue${counts.critical > 1 ? "s" : ""} need immediate remediation** before this system handles production traffic or sensitive data.\n\n`;
     } else if (counts.high > 0) {
-      md += `⚠️ **${counts.high} high-severity issue${counts.high > 1 ? "s" : ""} should be addressed within 30 days.**\n\n`;
+      md += `**${counts.high} high-severity issue${counts.high > 1 ? "s" : ""} should be addressed within 30 days.**\n\n`;
     } else {
-      md += `✅ No critical or high-severity issues detected.\n\n`;
+      md += `No critical or high-severity issues detected.\n\n`;
     }
 
     // Findings by severity
     md += `## Findings\n\n`;
 
     if (findings.length === 0) {
-      md += `No vulnerabilities found. ✅\n\n`;
+      md += `No vulnerabilities found.\n\n`;
     } else {
       for (const sev of severityOrder) {
         const items = grouped[sev];
         if (!items || items.length === 0) continue;
-        md += `### ${severityEmoji[sev]} ${sev.charAt(0).toUpperCase() + sev.slice(1)} Severity (${items.length})\n\n`;
+        md += `### [${severityLabel[sev]}] — ${items.length} finding${items.length > 1 ? "s" : ""}\n\n`;
         for (let i = 0; i < items.length; i++) {
           const f = items[i];
           md += `#### ${i + 1}. ${f.title || f.type}\n\n`;
@@ -1265,21 +1246,21 @@ const exportReportAction: Action = {
     // Remediation roadmap
     md += `## Remediation Roadmap\n\n`;
     if (counts.critical > 0) {
-      md += `### 🔴 Immediate (Today)\n`;
+      md += `### Immediate — Today\n`;
       md += grouped["critical"]
         ?.map((f, i) => `${i + 1}. **${f.title || f.type}** — ${f.remediation || "See finding details"}`)
         .join("\n") || "";
       md += `\n\n`;
     }
     if (counts.high > 0) {
-      md += `### 🟠 Short-Term (This Week)\n`;
+      md += `### Short-Term — This Week\n`;
       md += grouped["high"]
         ?.map((f, i) => `${i + 1}. **${f.title || f.type}** — ${f.remediation || "See finding details"}`)
         .join("\n") || "";
       md += `\n\n`;
     }
     if (counts.medium > 0) {
-      md += `### 🟡 Medium-Term (This Month)\n`;
+      md += `### Medium-Term — This Month\n`;
       md += grouped["medium"]
         ?.map((f, i) => `${i + 1}. **${f.title || f.type}** — ${f.remediation || "See finding details"}`)
         .join("\n") || "";
@@ -1290,19 +1271,12 @@ const exportReportAction: Action = {
     md += `## About ShieldNet\n\n`;
     md += `ShieldNet is an AI-powered cybersecurity agent built on [ElizaOS](https://github.com/elizaos/eliza) `;
     md += `running on [Nosana](https://nosana.io) decentralized GPU infrastructure.\n\n`;
-    md += `- 🌐 **Scanner:** https://scan.bughunt.tech\n`;
-    md += `- 🤖 **Agent:** ShieldNet on ElizaOS v1.7.2\n`;
-    md += `- 🔒 **Built by:** Hash Security\n`;
+    md += `- **Scanner:** https://scan.bughunt.tech\n`;
+    md += `- **Agent:** ShieldNet on ElizaOS v1.7.2\n`;
+    md += `- **Built by:** Hash Security\n`;
 
-    // Send the markdown as a code block (to preserve formatting in chat)
-    const previewLines = md.split("\n").slice(0, 30).join("\n");
-
+    // Send the full markdown report — ready to paste into GitHub issue or Notion
     if (callback) {
-      await callback({
-        text: `**Markdown Report — ${target}**\n\nPreview (first 30 lines):\n\`\`\`markdown\n${previewLines}\n\`\`\`\n\nFull report: ${md.split("\n").length} lines. Sending below.`,
-      });
-
-      // Send the full report as a second message
       await callback({
         text: `\`\`\`markdown\n${md}\n\`\`\``,
       });
@@ -1317,7 +1291,7 @@ const exportReportAction: Action = {
       {
         name: "ShieldNet",
         content: {
-          text: "📄 ShieldNet Markdown Report\n\n```markdown\n# ShieldNet Security Report\n...",
+          text: "```markdown\n# ShieldNet Security Report\n\n> Generated by ShieldNet • Hash Security\n\n## Scan Metadata\n\n| Field | Value |\n|-------|-------|\n| **Target** | `https://example.com` |\n| **Grade** | C (65/100) |\n...\n```",
         },
       },
     ],
@@ -1419,7 +1393,7 @@ const selfScanAction: Action = {
       {
         name: "ShieldNet",
         content: {
-          text: "🤖 Let me turn the scanner on myself... interesting.\n\n🛡️ ShieldNet Self-Scan Initiated\nTarget: https://scan.bughunt.tech",
+          text: "Turning the scanner on my own infrastructure. Fair is fair.\n\nTarget: https://scan.bughunt.tech\nResults in 30-60 seconds.",
         },
       },
     ],
@@ -1428,7 +1402,7 @@ const selfScanAction: Action = {
       {
         name: "ShieldNet",
         content: {
-          text: "🤖 Let me turn the scanner on myself... interesting.\n\nScanning my own endpoints...",
+          text: "Turning the scanner on my own infrastructure. This should be interesting.\n\nTarget: https://scan.bughunt.tech",
         },
       },
     ],
@@ -1655,7 +1629,7 @@ const healthCheckAction: Action = {
       {
         name: "ShieldNet",
         content: {
-          text: "**ShieldNet Agent — System Status**\n\nStatus: 🟢 RUNNING\nUptime: 5m 12s\n\n✅ LLM: Qwen3.5-27B-AWQ-4bit (234ms)\n✅ Embeddings: Qwen3-Embedding-0.6B (189ms)\n✅ Scanner: scan.bughunt.tech (145ms)",
+          text: "**ShieldNet Agent — System Status**\n\n**Core**\n  Status:     RUNNING\n  Uptime:     5m 12s\n\n**Nosana GPU Infrastructure**\n  ✅ LLM:        Qwen3.5-27B-AWQ-4bit (234ms)\n  ✅ Embeddings: Qwen3-Embedding-0.6B (189ms)\n\n**Scanner API**\n  ✅ scan.bughunt.tech (145ms)",
         },
       },
     ],
@@ -1664,7 +1638,7 @@ const healthCheckAction: Action = {
       {
         name: "ShieldNet",
         content: {
-          text: "🟢 Yes — ShieldNet is live on Nosana GPU infrastructure.\nLLM: Qwen3.5-27B ✅ | Embeddings ✅ | Scanner ✅",
+          text: "**ShieldNet Agent — System Status**\n\n  Status: RUNNING | Uptime: 12m 4s\n  ✅ LLM (198ms) | ✅ Embeddings (167ms) | ✅ Scanner (134ms)",
         },
       },
     ],
@@ -1673,7 +1647,7 @@ const healthCheckAction: Action = {
       {
         name: "ShieldNet",
         content: {
-          text: "**ShieldNet Agent — System Status**\n\nNosana LLM: ✅ | Embeddings: ✅ | Scanner API: ✅",
+          text: "**ShieldNet Agent — System Status**\n\n  ✅ LLM: Qwen3.5-27B-AWQ-4bit | ✅ Embeddings | ✅ Scanner API",
         },
       },
     ],
