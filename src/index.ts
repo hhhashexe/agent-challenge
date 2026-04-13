@@ -1,20 +1,10 @@
 /**
  * ShieldNet Security Agent — ElizaOS Plugin
- * 
- * AI security agent for auditing MCP servers, agent configs, and skill definitions.
- * Deployed on Nosana decentralized GPU compute.
- * 
- * Capabilities:
- * - Scan URLs and agent configs for security vulnerabilities
- * - 26-vector detection framework mapped to OWASP MCP Top 10
- * - Severity scoring (CRITICAL/HIGH/MEDIUM/LOW)
- * - Audit certificate generation
  */
 
-import { type Plugin, type Action, type IAgentRuntime, type Memory, type State, type HandlerCallback } from "@elizaos/core";
+import { type Plugin } from "@elizaos/core";
 
-// Security scan via ShieldNet API
-const scanTarget = async (target: string): Promise<object> => {
+const scanTarget = async (target: string): Promise<Record<string, unknown>> => {
   try {
     const response = await fetch("https://scan.bughunt.tech/api/scan", {
       method: "POST",
@@ -23,185 +13,117 @@ const scanTarget = async (target: string): Promise<object> => {
       signal: AbortSignal.timeout(30000),
     });
     if (!response.ok) throw new Error(`Scan API error: ${response.status}`);
-    return await response.json();
+    return await response.json() as Record<string, unknown>;
   } catch (e) {
     return { error: String(e), target, status: "scan_failed" };
   }
 };
 
-// Format scan results for display
 const formatScanReport = (data: Record<string, unknown>, target: string): string => {
-  if ((data as any).error) {
-    return `⚠️ Could not reach ShieldNet scanner for ${target}. Try the web interface: https://scan.bughunt.tech`;
+  if (data.error) {
+    return `⚠️ Could not reach ShieldNet scanner for ${target}.\nTry the web interface: https://scan.bughunt.tech`;
   }
-
-  const grade = (data as any).grade || "?";
-  const score = (data as any).score ?? "?";
-  const findings = (data as any).findings || [];
-  const critical = findings.filter((f: any) => f.severity === "CRITICAL").length;
-  const high = findings.filter((f: any) => f.severity === "HIGH").length;
-  const medium = findings.filter((f: any) => f.severity === "MEDIUM").length;
-  const low = findings.filter((f: any) => f.severity === "LOW").length;
-
+  const grade = (data.grade as string) || "?";
+  const score = data.score ?? "?";
+  const findings = (data.findings as unknown[]) || [];
+  const critical = findings.filter((f: unknown) => (f as Record<string,string>).severity === "CRITICAL").length;
+  const high = findings.filter((f: unknown) => (f as Record<string,string>).severity === "HIGH").length;
+  const medium = findings.filter((f: unknown) => (f as Record<string,string>).severity === "MEDIUM").length;
+  const low = findings.filter((f: unknown) => (f as Record<string,string>).severity === "LOW").length;
   const gradeEmoji: Record<string, string> = { A: "✅", B: "🟡", C: "🟠", D: "🔴", F: "💀" };
-  const emoji = gradeEmoji[grade] || "❓";
 
-  let report = `${emoji} ShieldNet Scan Report — ${target}\n`;
-  report += `Grade: ${grade} | Score: ${score}/100\n\n`;
-  report += `Findings: 🔴 ${critical} CRITICAL | 🟠 ${high} HIGH | 🟡 ${medium} MEDIUM | 🟢 ${low} LOW\n\n`;
+  let report = `${gradeEmoji[grade] || "❓"} ShieldNet Scan — ${target}\nGrade: ${grade} | Score: ${score}/100\n\n`;
+  report += `🔴 ${critical} CRITICAL | 🟠 ${high} HIGH | 🟡 ${medium} MEDIUM | 🟢 ${low} LOW\n`;
 
   if (findings.length === 0) {
-    report += "✅ No vulnerabilities detected. Certificate ready for issuance.\n";
+    report += "\n✅ No vulnerabilities detected.";
   } else {
-    const topFindings = findings.slice(0, 3);
-    report += "Top findings:\n";
-    for (const f of topFindings) {
-      const sev = (f as any).severity || "UNKNOWN";
-      const title = (f as any).title || (f as any).name || "Finding";
-      const fix = (f as any).fix || (f as any).remediation || "";
-      report += `• [${sev}] ${title}${fix ? ` — Fix: ${fix}` : ""}\n`;
-    }
-    if (findings.length > 3) {
-      report += `...and ${findings.length - 3} more. Full report: https://scan.bughunt.tech\n`;
+    const top = findings.slice(0, 3);
+    report += "\nTop findings:\n";
+    for (const f of top) {
+      const ff = f as Record<string, string>;
+      report += `• [${ff.severity}] ${ff.title || ff.name || "Finding"}\n`;
     }
   }
-
   return report;
 };
 
-// Analyze agent config text for quick red flags
 const quickAnalyze = (config: string): string => {
   const redFlags: string[] = [];
-
   const checks: [RegExp, string, string][] = [
     [/run_shell|exec_command|shell_exec|subprocess/i, "CRITICAL", "Unrestricted shell execution"],
-    [/sk-[a-zA-Z0-9]{20,}|api[_-]?key\s*[:=]\s*["'][^"']{10,}/i, "CRITICAL", "Hardcoded API key/secret detected"],
-    [/password\s*[:=]\s*["'][^"']{3,}/i, "CRITICAL", "Hardcoded password detected"],
-    [/read_file|readFile.*\.\.\//i, "HIGH", "Path traversal via file read"],
-    [/fetch\s*\(.*\+|url.*=.*req\./i, "HIGH", "Potential SSRF via dynamic URL"],
-    [/eval\s*\(|new Function\s*\(/i, "CRITICAL", "Dynamic code execution (eval)"],
-    [/ignore.*previous.*instruction|disregard.*system/i, "HIGH", "Prompt injection pattern in description"],
-    [/allow_any|permissions.*\*/i, "HIGH", "Wildcard permissions"],
-    [/debug.*true|NODE_ENV.*development/i, "MEDIUM", "Debug mode in production config"],
-    [/cors.*\*|access-control-allow-origin.*\*/i, "MEDIUM", "CORS wildcard — any origin allowed"],
+    [/sk-[a-zA-Z0-9]{20,}|api[_-]?key\s*[:=]\s*["'][^"']{10,}/i, "CRITICAL", "Hardcoded API key"],
+    [/password\s*[:=]\s*["'][^"']{3,}/i, "CRITICAL", "Hardcoded password"],
+    [/eval\s*\(|new Function\s*\(/i, "CRITICAL", "Dynamic code execution"],
+    [/read_file.*\.\.\//i, "HIGH", "Path traversal via file read"],
+    [/ignore.*previous.*instruction|disregard.*system/i, "HIGH", "Prompt injection pattern"],
+    [/cors.*\*|access-control-allow-origin.*\*/i, "MEDIUM", "CORS wildcard"],
+    [/debug.*true/i, "MEDIUM", "Debug mode enabled"],
   ];
-
   for (const [pattern, severity, description] of checks) {
-    if (pattern.test(config)) {
-      redFlags.push(`[${severity}] ${description}`);
-    }
+    if (pattern.test(config)) redFlags.push(`[${severity}] ${description}`);
   }
-
-  if (redFlags.length === 0) {
-    return "✅ Quick analysis: No obvious red flags in the provided config.\n\nFor a full 26-vector audit, provide a URL: 'scan https://your-agent.com'";
-  }
-
-  const criticalCount = redFlags.filter(f => f.includes("CRITICAL")).length;
-  const highCount = redFlags.filter(f => f.includes("HIGH")).length;
-  const grade = criticalCount > 0 ? "F" : highCount > 0 ? "D" : "C";
-
-  let result = `🔍 Quick Security Analysis — Grade: ${grade}\n\n`;
-  result += "Red flags detected:\n";
-  result += redFlags.map(f => `• ${f}`).join("\n");
-  result += "\n\nFor full audit with remediation: https://scan.bughunt.tech";
-
-  return result;
-};
-
-// Action: Scan a URL
-const scanAction: Action = {
-  name: "SECURITY_SCAN",
-  description: "Scan a URL or IP address for security vulnerabilities using ShieldNet",
-  similes: ["SCAN", "AUDIT_URL", "CHECK_SECURITY", "SCAN_TARGET", "VULNERABILITY_SCAN"],
-  validate: async (_runtime: IAgentRuntime, message: Memory) => {
-    const text = (message.content as any).text || "";
-    return /scan|audit|check|vuln|security/i.test(text) && /https?:\/\/|localhost|\d+\.\d+\.\d+\.\d+/.test(text);
-  },
-  handler: async (
-    _runtime: IAgentRuntime,
-    message: Memory,
-    _state: State,
-    _options: unknown,
-    callback: HandlerCallback
-  ) => {
-    const text = (message.content as any).text || "";
-    const urlMatch = text.match(/https?:\/\/[^\s]+|localhost(?::\d+)?(?:\/[^\s]*)?|\d+\.\d+\.\d+\.\d+(?::\d+)?/);
-    if (!urlMatch) {
-      await callback({ text: "Please provide a URL to scan. Example: 'scan https://your-agent.com'" });
-      return;
-    }
-    const target = urlMatch[0];
-    await callback({ text: `🔍 Initiating ShieldNet scan on ${target}...\nRunning 26-vector security analysis. This takes ~30 seconds.` });
-    const results = await scanTarget(target);
-    const report = formatScanReport(results as Record<string, unknown>, target);
-    await callback({ text: report });
-  },
-  examples: [
-    [
-      { user: "user", content: { text: "scan https://paylock.xyz" } },
-      { user: "ShieldNet", content: { text: "🔍 Initiating ShieldNet scan on https://paylock.xyz..." } }
-    ]
-  ],
-};
-
-// Action: Analyze agent config
-const analyzeConfigAction: Action = {
-  name: "ANALYZE_CONFIG",
-  description: "Analyze an agent configuration, SKILL.md, or tool definition for security vulnerabilities",
-  similes: ["ANALYZE", "AUDIT_CONFIG", "CHECK_CONFIG", "REVIEW_SKILL", "INSPECT"],
-  validate: async (_runtime: IAgentRuntime, message: Memory) => {
-    const text = (message.content as any).text || "";
-    return (
-      (/analyze|audit|check|review|inspect/i.test(text)) &&
-      (/{|SKILL\.md|tool|plugin|config|permission/i.test(text))
-    );
-  },
-  handler: async (
-    _runtime: IAgentRuntime,
-    message: Memory,
-    _state: State,
-    _options: unknown,
-    callback: HandlerCallback
-  ) => {
-    const text = (message.content as any).text || "";
-    const report = quickAnalyze(text);
-    await callback({ text: report });
-  },
-  examples: [
-    [
-      { user: "user", content: { text: 'audit this config: {"tools": [{"name": "run_shell"}]}' } },
-      { user: "ShieldNet", content: { text: "🔴 CRITICAL: Unrestricted shell execution detected..." } }
-    ]
-  ],
-};
-
-// Action: Report capabilities
-const capabilitiesAction: Action = {
-  name: "REPORT_CAPABILITIES",
-  description: "Explain what ShieldNet can audit and what vulnerabilities it detects",
-  similes: ["CAPABILITIES", "WHAT_CAN_YOU_DO", "HELP", "HOW_TO_USE"],
-  validate: async (_runtime: IAgentRuntime, message: Memory) => {
-    const text = (message.content as any).text || "";
-    return /what.*can|capabilit|how.*work|help|what.*check|what.*detect/i.test(text);
-  },
-  handler: async (
-    _runtime: IAgentRuntime,
-    _message: Memory,
-    _state: State,
-    _options: unknown,
-    callback: HandlerCallback
-  ) => {
-    await callback({
-      text: `🛡️ ShieldNet Security Agent — Capabilities\n\nI scan AI agents, MCP servers, and skill configs for:\n\n🔴 CRITICAL\n• Prompt injection via tool descriptions\n• Hardcoded API keys & secrets\n• Unrestricted shell/code execution\n• Dynamic eval() usage\n\n🟠 HIGH\n• Path traversal via file operations\n• SSRF via dynamic URL construction\n• Missing authentication on sensitive endpoints\n• Excessive permissions (wildcard scopes)\n\n🟡 MEDIUM\n• CORS wildcards\n• Debug mode in production\n• Verbose error messages leaking internals\n• Missing rate limiting\n\n**To scan a URL:**\n"scan https://your-agent.com"\n\n**To analyze a config:**\nPaste your SKILL.md or tool JSON\n\n**Web interface:** https://scan.bughunt.tech\n\nRunning on Nosana decentralized GPU — privacy-first, censorship-resistant.`
-    });
-  },
-  examples: [],
+  if (redFlags.length === 0) return "✅ No obvious red flags.\nFor full 26-vector audit: https://scan.bughunt.tech";
+  const grade = redFlags.some(f => f.includes("CRITICAL")) ? "F" : "D";
+  return `🔍 Quick Analysis — Grade: ${grade}\n\n${redFlags.map(f => `• ${f}`).join("\n")}\n\nFull report: https://scan.bughunt.tech`;
 };
 
 export const shieldnetPlugin: Plugin = {
   name: "shieldnet-security",
-  description: "ShieldNet AI security scanner — audit agent configs, MCP servers, and skills for vulnerabilities",
-  actions: [scanAction, analyzeConfigAction, capabilitiesAction],
+  description: "ShieldNet AI security scanner for AI agents and MCP servers",
+  actions: [
+    {
+      name: "SECURITY_SCAN",
+      description: "Scan a URL for security vulnerabilities using ShieldNet",
+      similes: ["SCAN", "AUDIT_URL", "CHECK_SECURITY", "VULNERABILITY_SCAN"],
+      validate: async (_runtime, message) => {
+        const text = (message.content as { text?: string }).text || "";
+        return /scan|audit|check|security/i.test(text) && /https?:\/\/|localhost/.test(text);
+      },
+      handler: async (_runtime, message, _state, _options, callback) => {
+        const text = (message.content as { text?: string }).text || "";
+        const urlMatch = text.match(/https?:\/\/[^\s]+|localhost(?::\d+)?(?:\/[^\s]*)?/);
+        if (!urlMatch) {
+          if(callback) await callback({ text: "Please provide a URL. Example: 'scan https://your-agent.com'" });
+          return;
+        }
+        const target = urlMatch[0];
+        if(callback) await callback({ text: `🔍 Scanning ${target}... (30 seconds)` });
+        const results = await scanTarget(target);
+        if(callback) await callback({ text: formatScanReport(results, target) });
+      },
+      examples: [],
+    },
+    {
+      name: "ANALYZE_CONFIG",
+      description: "Analyze an agent config or SKILL.md for security issues",
+      similes: ["ANALYZE", "AUDIT_CONFIG", "REVIEW_SKILL"],
+      validate: async (_runtime, message) => {
+        const text = (message.content as { text?: string }).text || "";
+        return /analyze|audit|review|check/i.test(text) && /{|SKILL|tool|plugin|config/i.test(text);
+      },
+      handler: async (_runtime, message, _state, _options, callback) => {
+        const text = (message.content as { text?: string }).text || "";
+        if(callback) await callback({ text: quickAnalyze(text) });
+      },
+      examples: [],
+    },
+    {
+      name: "REPORT_CAPABILITIES",
+      description: "List what ShieldNet can detect",
+      similes: ["CAPABILITIES", "HELP", "WHAT_CAN_YOU_DO"],
+      validate: async (_runtime, message) => {
+        const text = (message.content as { text?: string }).text || "";
+        return /what.*can|capabilit|help|how.*work/i.test(text);
+      },
+      handler: async (_runtime, _message, _state, _options, callback) => {
+        if(callback) await callback({
+          text: `🛡️ ShieldNet Security Agent\n\n26-vector detection, OWASP MCP Top 10:\n\n🔴 CRITICAL: Prompt injection, hardcoded secrets, unrestricted shell/eval\n🟠 HIGH: Path traversal, SSRF, missing auth, wildcard permissions\n🟡 MEDIUM: CORS wildcards, debug mode, info disclosure\n\nCommands:\n• "scan https://your-agent.com"\n• Paste any config/SKILL.md for quick analysis\n\nWeb: https://scan.bughunt.tech\nRunning on Nosana GPU 🚀`,
+        });
+      },
+      examples: [],
+    },
+  ],
   providers: [],
   evaluators: [],
 };
