@@ -1,7 +1,9 @@
 FROM node:20-alpine AS base
 
-# Install system dependencies
-RUN apk add --no-cache python3 make g++ git
+# Install system dependencies + bun
+RUN apk add --no-cache python3 make g++ git curl unzip bash
+RUN curl -fsSL https://bun.sh/install | bash
+ENV PATH="/root/.bun/bin:$PATH"
 
 # Disable telemetry
 ENV ELIZAOS_TELEMETRY_DISABLED=true
