@@ -128,3 +128,11 @@ Full-featured security scanner: **[scan.bughunt.tech](https://scan.bughunt.tech)
 ## License
 
 MIT
+
+---
+
+## Live Nosana Deployment
+
+**Agent URL:** https://3bhg9jgvwimp46qbrgrf7ybp9jxzyvka48fv1rgvtmap.node.k8s.prd.nos.ci
+
+Running on Nosana decentralized GPU network — NVIDIA 3060, mainnet.
