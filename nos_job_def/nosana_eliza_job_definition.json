@@ -18,5 +18,9 @@
         "gpu": true
       }
     }
-  ]
+  ],
+  "meta": {
+    "deployment_url": "https://3bhg9jgvwimp46qbrgrf7ybp9jxzyvka48fv1rgvtmap.node.k8s.prd.nos.ci",
+    "trigger": "dashboard"
+  }
 }
